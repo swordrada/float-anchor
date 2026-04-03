@@ -160,11 +160,15 @@ ipcMain.handle('trigger-update', async (_event, downloadUrl: string, assetName: 
           })
         })
       })
+      try { fs.rmSync(tmpDir, { recursive: true, force: true }) } catch {}
       app.relaunch({ execPath: '/Applications/FloatAnchor.app/Contents/MacOS/FloatAnchor' })
       app.exit(0)
     } else {
       exec(`start "" "${destPath}"`)
-      setTimeout(() => app.exit(0), 1000)
+      setTimeout(() => {
+        try { fs.rmSync(tmpDir, { recursive: true, force: true }) } catch {}
+        app.exit(0)
+      }, 2000)
     }
 
     return { success: true }
