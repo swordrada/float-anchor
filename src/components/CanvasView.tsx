@@ -1,11 +1,54 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from 'react'
 import { useStore, useActiveCanvasMeta, useActiveCards } from '../store'
 import NoteCard from './NoteCard'
+import type { Card } from '../types'
 
 const MIN_SCALE = 0.15
 const MAX_SCALE = 3
 const VIEWPORT_PADDING = 400
 const CULL_THROTTLE = 120
+
+function findDensestCenter(cards: Card[]): { cx: number; cy: number; clusterCards: Card[] } | null {
+  if (cards.length === 0) return null
+  if (cards.length <= 3) {
+    const cx = cards.reduce((s, c) => s + c.x + c.width / 2, 0) / cards.length
+    const cy = cards.reduce((s, c) => s + c.y + (c.height ?? 200) / 2, 0) / cards.length
+    return { cx, cy, clusterCards: cards }
+  }
+
+  const centers = cards.map((c) => ({
+    card: c,
+    mx: c.x + c.width / 2,
+    my: c.y + (c.height ?? 200) / 2,
+  }))
+
+  const radius = 800
+  let bestIdx = 0
+  let bestCount = 0
+
+  for (let i = 0; i < centers.length; i++) {
+    let count = 0
+    for (let j = 0; j < centers.length; j++) {
+      const dx = centers[i].mx - centers[j].mx
+      const dy = centers[i].my - centers[j].my
+      if (dx * dx + dy * dy <= radius * radius) count++
+    }
+    if (count > bestCount) {
+      bestCount = count
+      bestIdx = i
+    }
+  }
+
+  const cluster = centers.filter((c) => {
+    const dx = c.mx - centers[bestIdx].mx
+    const dy = c.my - centers[bestIdx].my
+    return dx * dx + dy * dy <= radius * radius
+  })
+
+  const cx = cluster.reduce((s, c) => s + c.mx, 0) / cluster.length
+  const cy = cluster.reduce((s, c) => s + c.my, 0) / cluster.length
+  return { cx, cy, clusterCards: cluster.map((c) => c.card) }
+}
 
 export default function CanvasView() {
   const addCard = useStore((s) => s.addCard)
@@ -144,6 +187,65 @@ export default function CanvasView() {
     addCard(cx + jitter(), cy + jitter())
   }
 
+  const flyAnimRef = useRef(0)
+
+  const handleLocate = useCallback(() => {
+    const vp = viewportRef.current
+    if (!vp || cards.length === 0) return
+
+    const result = findDensestCenter(cards)
+    if (!result) return
+
+    const { clusterCards } = result
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const c of clusterCards) {
+      minX = Math.min(minX, c.x)
+      minY = Math.min(minY, c.y)
+      maxX = Math.max(maxX, c.x + c.width)
+      maxY = Math.max(maxY, c.y + (c.height ?? 200))
+    }
+
+    const clusterW = maxX - minX
+    const clusterH = maxY - minY
+    const vpW = vp.clientWidth
+    const vpH = vp.clientHeight
+    const padding = 80
+
+    const targetScale = Math.min(
+      Math.max(Math.min((vpW - padding * 2) / clusterW, (vpH - padding * 2) / clusterH), MIN_SCALE),
+      MAX_SCALE,
+    )
+    const centerX = (minX + maxX) / 2
+    const centerY = (minY + maxY) / 2
+    const targetPanX = vpW / 2 - centerX * targetScale
+    const targetPanY = vpH / 2 - centerY * targetScale
+
+    const startPanX = pan.current.x
+    const startPanY = pan.current.y
+    const startScale = scaleVal.current
+    const duration = 400
+    const startTime = performance.now()
+
+    cancelAnimationFrame(flyAnimRef.current)
+    const animate = (now: number) => {
+      const elapsed = now - startTime
+      const rawT = Math.min(elapsed / duration, 1)
+      const t = 1 - (1 - rawT) * (1 - rawT)
+
+      pan.current.x = startPanX + (targetPanX - startPanX) * t
+      pan.current.y = startPanY + (targetPanY - startPanY) * t
+      scaleVal.current = startScale + (targetScale - startScale) * t
+      applyTransform()
+
+      if (rawT < 1) {
+        flyAnimRef.current = requestAnimationFrame(animate)
+      } else {
+        scheduleCull()
+      }
+    }
+    flyAnimRef.current = requestAnimationFrame(animate)
+  }, [cards, applyTransform, scheduleCull])
+
   const vpRect = viewportRef.current?.getBoundingClientRect()
   const vpW = vpRect?.width ?? 1400
   const vpH = vpRect?.height ?? 900
@@ -239,6 +341,15 @@ export default function CanvasView() {
           <div className="canvas-empty-cards">
             <p>双击空白区域添加卡片，或点击上方「添加卡片」按钮</p>
           </div>
+        )}
+
+        {cards.length > 0 && (
+          <button className="canvas-locate-btn" title="定位到卡片密集区域" onClick={handleLocate}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M12 2v4M12 18v4M2 12h4M18 12h4" />
+            </svg>
+          </button>
         )}
       </div>
     </main>
