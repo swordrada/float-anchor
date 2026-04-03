@@ -7,7 +7,7 @@ import os
 SIZE = 1024
 BG = (255, 255, 255, 255)
 FG = (45, 45, 45, 255)
-ACCENT = (74, 144, 217, 210)
+ACCENT = (74, 144, 217, 255)
 
 out_dir = os.path.join(os.path.dirname(__file__), '..', 'build')
 os.makedirs(out_dir, exist_ok=True)
