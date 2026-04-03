@@ -15,7 +15,7 @@
     <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License">
   </a>
   <img src="https://img.shields.io/badge/price-free-brightgreen.svg" alt="Free">
-  <img src="https://img.shields.io/badge/data-100%25%20local-orange.svg" alt="Local Storage">
+  <img src="https://img.shields.io/badge/data-local%20first-orange.svg" alt="Local First">
 </p>
 
 ---
@@ -24,7 +24,7 @@
 
 > **完全开源** — 代码在 GitHub 公开，任何人都可以审查、修改、分发。  
 > **永久免费** — 没有付费墙、没有订阅、没有增值收费，所有功能开箱即用。  
-> **数据属于你** — 笔记 100% 存储在你的电脑本地，不经过任何服务器，没有账号体系，没有云同步，你的数据只有你自己能看到。  
+> **本地优先** — 笔记 100% 存储在你的电脑本地，不需要注册账号。可选配置坚果云 WebDAV 进行云端同步。  
 > **无商业化** — 这是一个纯粹的个人项目，不含广告、不采集数据、不追踪用户行为。
 
 ---
@@ -35,25 +35,28 @@
 - **卡片笔记** — 在画布上自由创建卡片，支持标题 + 富文本正文
 - **所见即所得编辑** — 内置 WYSIWYG 编辑器，支持标题、加粗、斜体、删除线、列表、引用、代码、链接等格式
 - **自由拖拽** — 卡片可拖动到画布任意位置，右下角手柄可缩放卡片大小
-- **右键菜单** — macOS 触控板双指点击 / Windows 鼠标右键，弹出上下文菜单，支持卡片和画布空白处两种场景
+- **磁吸对齐** — 拖拽卡片时自动吸附对齐相邻卡片，保持统一间距
 - **卡片连线** — 在卡片之间创建带箭头的连接线，可视化知识关联
-- **卡片链接** — 复制卡片链接并粘贴到其他卡片正文中，点击即可飞行导航到目标卡片
+- **卡片链接** — 复制卡片链接并粘贴到其他卡片正文中，点击即可飞行导航到目标卡片（支持跨画布跳转）
 - **移动卡片** — 将卡片移动到其他画布
 - **最佳大小** — 一键将卡片调整为内容紧凑的最佳尺寸
 - **画布标题** — 在画布上创建横幅式标题，支持 Markdown 语法设置标题级别
 - **分区容器** — 将一组卡片框选在彩色分区中统一管理，拖动分区即可带动所有内含卡片
 - **画布导航** — 双指滑动（macOS）/ 鼠标中键拖拽（Windows）平移画布；捏合缩放（macOS）/ Ctrl+滚轮（Windows）缩放画布
-- **纯本地存储** — 所有数据保存在本地，不上传任何云端，不需要注册账号
+- **Light / Dark 主题** — 支持亮色和暗黑两种主题，在设置中一键切换
+- **坚果云同步** — 配置坚果云 WebDAV 后，保存时自动上传云端，启动时自动拉取同步，本地自动备份
+- **应用内更新** — 检测到新版本时侧栏提示更新，支持一键下载安装
+- **纯本地存储** — 所有数据保存在本地，不上传任何云端（除非主动配置云同步）
 
 ## 下载安装
 
-前往 [Releases](https://github.com/swordrada/float-anchor/releases) 页面下载最新版本，或直接使用仓库 `release/` 目录中的安装包：
+前往 [Releases](https://github.com/swordrada/float-anchor/releases) 页面下载最新版本：
 
 | 文件 | 平台 | 适用设备 |
 |------|------|----------|
-| `FloatAnchor-2.0.0-mac-arm64.dmg` | macOS | Apple Silicon (M1/M2/M3/M4) |
-| `FloatAnchor-2.0.0-mac-x64.dmg` | macOS | Intel Mac |
-| `FloatAnchor-2.0.0-win-setup.exe` | Windows | 64 位 Windows |
+| `FloatAnchor-1.0.0-mac-arm64.dmg` | macOS | Apple Silicon (M1/M2/M3/M4) |
+| `FloatAnchor-1.0.0-mac-x64.dmg` | macOS | Intel Mac |
+| `FloatAnchor-1.0.0-win-setup.exe` | Windows | 64 位 Windows |
 
 ### macOS 安装
 
@@ -110,12 +113,19 @@
 
 也支持直接输入 Markdown 语法，编辑器会实时渲染为对应样式。
 
+### 设置
+
+点击侧栏左上角的齿轮按钮打开设置面板：
+
+- **主题切换** — 在 Light 和 Dark 之间切换
+- **坚果云同步** — 填入坚果云 WebDAV 服务器地址、邮箱和应用密码，保存后自动开启同步。保存时自动上传云端，启动时自动拉取最新数据，同步前自动创建本地备份。
+
 ### 数据存储
 
 所有笔记数据保存在本地：
 
-- **macOS** — `~/Library/Application Support/FloatAnchor/data/`
-- **Windows** — `%APPDATA%/FloatAnchor/data/`
+- **macOS** — `~/Library/Application Support/float-anchor/data/`
+- **Windows** — `%APPDATA%/float-anchor/data/`
 
 ## 从 Heptabase 迁移
 
