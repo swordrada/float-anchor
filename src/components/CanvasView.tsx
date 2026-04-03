@@ -247,6 +247,11 @@ export default function CanvasView() {
     e.preventDefault()
     e.stopPropagation()
 
+    if (connectingFrom) {
+      setConnectingFrom(null)
+      return
+    }
+
     const noteCard = (e.target as HTMLElement).closest('.note-card')
 
     if (noteCard) {
@@ -336,7 +341,7 @@ export default function CanvasView() {
         ],
       })
     }
-  }, [cards, addCard, addLabel, addSection, deleteCard, setEditingCard, updateCard, toCanvasCoords])
+  }, [cards, addCard, addLabel, addSection, deleteCard, setEditingCard, updateCard, toCanvasCoords, connectingFrom])
 
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
