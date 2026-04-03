@@ -12,6 +12,24 @@ interface Props {
 
 const remarkPlugins = [remarkGfm]
 
+function navigateToCard(targetId: string) {
+  const s = useStore.getState()
+  const currentCanvas = s.canvases.find((c) => c.id === s.activeCanvasId)
+  if (currentCanvas?.cards.find((c) => c.id === targetId)) {
+    s.setHighlightCard(targetId)
+    window.dispatchEvent(new CustomEvent('fa-fly-to-card', { detail: { cardId: targetId } }))
+    return
+  }
+  const otherCanvas = s.canvases.find((c) => c.cards.some((card) => card.id === targetId))
+  if (otherCanvas) {
+    s.setActiveCanvas(otherCanvas.id)
+    s.setHighlightCard(targetId)
+    setTimeout(() => {
+      window.dispatchEvent(new CustomEvent('fa-fly-to-card', { detail: { cardId: targetId } }))
+    }, 50)
+  }
+}
+
 function FaCardLink({ targetId }: { targetId: string }) {
   const store = useStore.getState()
   let targetTitle = '无标题卡片'
@@ -26,13 +44,7 @@ function FaCardLink({ targetId }: { targetId: string }) {
       onClick={(e: React.MouseEvent) => {
         e.preventDefault()
         e.stopPropagation()
-        const s = useStore.getState()
-        const canvas = s.canvases.find((c) => c.id === s.activeCanvasId)
-        const targetCard = canvas?.cards.find((c) => c.id === targetId)
-        if (targetCard) {
-          s.setHighlightCard(targetId)
-          window.dispatchEvent(new CustomEvent('fa-fly-to-card', { detail: { cardId: targetId } }))
-        }
+        navigateToCard(targetId)
       }}
     >
       {targetTitle}
