@@ -177,26 +177,28 @@ export const useStore = create<AppState>((set, get) => ({
       const ow = other.width
       const oh = other.height ?? 300
 
-      const xSnaps: [number, number][] = [
-        [Math.abs(x - (other.x + ow + GAP)), other.x + ow + GAP],
-        [Math.abs((x + selfW) - (other.x - GAP)), other.x - GAP - selfW],
-        [Math.abs(x - other.x), other.x],
-        [Math.abs((x + selfW) - (other.x + ow)), other.x + ow - selfW],
-      ]
-      for (const [dist, snap] of xSnaps) {
-        if (dist < bestDx) { bestDx = dist; bestX = snap }
-      }
+      let d: number
 
-      const ySnaps: [number, number][] = [
-        [Math.abs(y - other.y), other.y],
-        [Math.abs((y + selfH) - (other.y + oh)), other.y + oh - selfH],
-        [Math.abs(y - (other.y + oh + GAP)), other.y + oh + GAP],
-        [Math.abs((y + selfH) - (other.y - GAP)), other.y - GAP - selfH],
-      ]
-      for (const [dist, snap] of ySnaps) {
-        if (dist < bestDy) { bestDy = dist; bestY = snap }
-      }
+      d = Math.abs(x - (other.x + ow + GAP))
+      if (d < bestDx) { bestDx = d; bestX = other.x + ow + GAP }
+      d = Math.abs((x + selfW) - (other.x - GAP))
+      if (d < bestDx) { bestDx = d; bestX = other.x - GAP - selfW }
+      d = Math.abs(x - other.x)
+      if (d < bestDx) { bestDx = d; bestX = other.x }
+      d = Math.abs((x + selfW) - (other.x + ow))
+      if (d < bestDx) { bestDx = d; bestX = other.x + ow - selfW }
+
+      d = Math.abs(y - other.y)
+      if (d < bestDy) { bestDy = d; bestY = other.y }
+      d = Math.abs((y + selfH) - (other.y + oh))
+      if (d < bestDy) { bestDy = d; bestY = other.y + oh - selfH }
+      d = Math.abs(y - (other.y + oh + GAP))
+      if (d < bestDy) { bestDy = d; bestY = other.y + oh + GAP }
+      d = Math.abs((y + selfH) - (other.y - GAP))
+      if (d < bestDy) { bestDy = d; bestY = other.y - GAP - selfH }
     }
+
+    if (self.x === bestX && self.y === bestY) return
 
     set((s) => ({
       canvases: s.canvases.map((c) =>

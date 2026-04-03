@@ -382,6 +382,7 @@ input {
   background-color: #f6f6f6;
   background-image: radial-gradient(circle, #d4d4d4 1px, transparent 1px);
   background-size: 24px 24px;
+  isolation: isolate;
 }
 
 .canvas-viewport.panning {
@@ -396,6 +397,7 @@ input {
   height: 1px;
   will-change: transform;
   contain: layout style;
+  backface-visibility: hidden;
 }
 
 .canvas-empty-state {

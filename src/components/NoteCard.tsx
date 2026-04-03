@@ -99,9 +99,15 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale }: Props) {
       const ox = card.x
       const oy = card.y
       const s = scale
-      const onMove = (ev: MouseEvent) =>
-        moveCard(cardId, ox + (ev.clientX - sx) / s, oy + (ev.clientY - sy) / s)
+      let dragRaf = 0
+      const onMove = (ev: MouseEvent) => {
+        cancelAnimationFrame(dragRaf)
+        dragRaf = requestAnimationFrame(() =>
+          moveCard(cardId, ox + (ev.clientX - sx) / s, oy + (ev.clientY - sy) / s),
+        )
+      }
       const onUp = () => {
+        cancelAnimationFrame(dragRaf)
         setIsDragging(false)
         document.removeEventListener('mousemove', onMove)
         document.removeEventListener('mouseup', onUp)
@@ -143,12 +149,17 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale }: Props) {
         card.height ??
         (cardRef.current ? cardRef.current.getBoundingClientRect().height / scale : 200)
       const s = scale
+      let resizeRaf = 0
       const onMove = (ev: MouseEvent) => {
-        const nw = Math.max(200, ow + (ev.clientX - sx) / s)
-        const nh = Math.max(100, oh + (ev.clientY - sy) / s)
-        updateCard(cardId, { width: nw, height: nh })
+        cancelAnimationFrame(resizeRaf)
+        resizeRaf = requestAnimationFrame(() => {
+          const nw = Math.max(200, ow + (ev.clientX - sx) / s)
+          const nh = Math.max(100, oh + (ev.clientY - sy) / s)
+          updateCard(cardId, { width: nw, height: nh })
+        })
       }
       const onUp = () => {
+        cancelAnimationFrame(resizeRaf)
         setIsResizing(false)
         document.removeEventListener('mousemove', onMove)
         document.removeEventListener('mouseup', onUp)
