@@ -48,6 +48,18 @@ export interface AppData {
   activeCanvasId: string | null
 }
 
+interface UpdateInfo {
+  version: string
+  currentVersion: string
+  assetName: string
+  downloadUrl: string
+}
+
+interface UpdateProgress {
+  stage: 'downloading' | 'installing' | 'error'
+  percent: number
+}
+
 declare global {
   interface Window {
     electronAPI: {
@@ -57,6 +69,9 @@ declare global {
       winMinimize: () => void
       winMaximize: () => void
       winClose: () => void
+      onUpdateAvailable: (cb: (info: UpdateInfo) => void) => void
+      onUpdateProgress: (cb: (progress: UpdateProgress) => void) => void
+      triggerUpdate: (downloadUrl: string, assetName: string) => Promise<{ success: boolean; error?: string }>
     }
   }
 }

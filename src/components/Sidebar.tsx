@@ -1,6 +1,68 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useStore } from '../store'
 import { shallow } from 'zustand/shallow'
+
+function UpdateBanner() {
+  const [updateInfo, setUpdateInfo] = useState<{ version: string; downloadUrl: string; assetName: string } | null>(null)
+  const [dismissed, setDismissed] = useState(false)
+  const [progress, setProgress] = useState<{ stage: string; percent: number } | null>(null)
+
+  useEffect(() => {
+    window.electronAPI.onUpdateAvailable((info) => {
+      setUpdateInfo({ version: info.version, downloadUrl: info.downloadUrl, assetName: info.assetName })
+      setDismissed(false)
+      setProgress(null)
+    })
+    window.electronAPI.onUpdateProgress((p) => {
+      setProgress({ stage: p.stage, percent: p.percent })
+    })
+  }, [])
+
+  const handleUpdate = useCallback(() => {
+    if (!updateInfo) return
+    setProgress({ stage: 'downloading', percent: 0 })
+    window.electronAPI.triggerUpdate(updateInfo.downloadUrl, updateInfo.assetName)
+  }, [updateInfo])
+
+  if (!updateInfo || dismissed) return null
+
+  return (
+    <div className="update-banner">
+      <div className="update-banner-header">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2">
+          <path d="M12 2v10m0 0l-3-3m3 3l3-3" />
+          <path d="M20 21H4a1 1 0 01-1-1v-3h18v3a1 1 0 01-1 1z" />
+        </svg>
+        <span className="update-banner-text">
+          v{updateInfo.version} 可用
+        </span>
+        <button className="update-banner-close" onClick={() => setDismissed(true)} title="关闭">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+            <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
+          </svg>
+        </button>
+      </div>
+      {progress ? (
+        <div className="update-banner-progress">
+          <div className="update-progress-bar">
+            <div
+              className="update-progress-fill"
+              style={{ width: `${progress.percent}%` }}
+            />
+          </div>
+          <span className="update-progress-label">
+            {progress.stage === 'downloading' ? `下载中 ${progress.percent}%` :
+             progress.stage === 'installing' ? '安装中...' : '更新失败'}
+          </span>
+        </div>
+      ) : (
+        <button className="update-banner-btn" onClick={handleUpdate}>
+          更新
+        </button>
+      )}
+    </div>
+  )
+}
 
 export default function Sidebar() {
   const { activeCanvasId, setActiveCanvas, addCanvas, deleteCanvas, renameCanvas } =
@@ -139,6 +201,8 @@ export default function Sidebar() {
           </div>
         ))}
       </nav>
+
+      <UpdateBanner />
 
       <div className="sidebar-footer">
         {isAdding ? (

@@ -268,6 +268,88 @@ input {
   font-size: 13px;
 }
 
+/* ===== Update Banner ===== */
+.update-banner {
+  margin: 0 12px 8px;
+  padding: 10px;
+  background: var(--accent-light, #eef4ff);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+}
+
+.update-banner-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.update-banner-text {
+  flex: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.update-banner-close {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  color: var(--text-tertiary);
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.update-banner-close:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: var(--text-primary);
+}
+
+.update-banner-btn {
+  display: block;
+  width: 100%;
+  margin-top: 8px;
+  padding: 5px 0;
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  text-align: center;
+  transition: opacity 0.15s;
+}
+
+.update-banner-btn:hover {
+  opacity: 0.85;
+}
+
+.update-banner-progress {
+  margin-top: 8px;
+}
+
+.update-progress-bar {
+  height: 4px;
+  background: rgba(0, 0, 0, 0.08);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.update-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.update-progress-label {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
 .sidebar-footer {
   padding: 12px;
   border-top: 1px solid var(--border);
