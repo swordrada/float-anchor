@@ -1,17 +1,18 @@
 import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react'
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { useCardById, useIsEditing, useCardActions } from '../store'
+import { useStore, useCardById, useIsEditing, useCardActions } from '../store'
 import RichEditor from './RichEditor'
 
 interface Props {
   cardId: string
   scale: number
+  highlight?: boolean
 }
 
 const remarkPlugins = [remarkGfm]
 
-const NoteCard = React.memo(function NoteCard({ cardId, scale }: Props) {
+const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight }: Props) {
   const card = useCardById(cardId)
   const isEditing = useIsEditing(cardId)
   const { moveCard, deleteCard, updateCard, setEditingCard } = useCardActions()
@@ -170,21 +171,51 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale }: Props) {
     [cardId, card?.width, card?.height, scale, updateCard],
   )
 
+  const mdComponents = useMemo<Partial<Components>>(() => ({
+    a: ({ href, children, ...rest }) => {
+      if (href?.startsWith('fa://')) {
+        const targetId = href.slice(5)
+        return (
+          <a
+            {...rest}
+            href="#"
+            className="fa-card-link"
+            onClick={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              const store = useStore.getState()
+              const canvas = store.canvases.find((c) => c.id === store.activeCanvasId)
+              const targetCard = canvas?.cards.find((c) => c.id === targetId)
+              if (targetCard) {
+                store.setHighlightCard(targetId)
+                window.dispatchEvent(new CustomEvent('fa-fly-to-card', { detail: { cardId: targetId } }))
+              }
+            }}
+          >
+            {children}
+          </a>
+        )
+      }
+      return <a href={href} {...rest} target="_blank" rel="noopener noreferrer">{children}</a>
+    },
+  }), [])
+
   const renderedContent = useMemo(() => {
     if (!card?.content) return null
     return (
-      <ReactMarkdown remarkPlugins={remarkPlugins}>
+      <ReactMarkdown remarkPlugins={remarkPlugins} components={mdComponents}>
         {card.content}
       </ReactMarkdown>
     )
-  }, [card?.content])
+  }, [card?.content, mdComponents])
 
   if (!card) return null
 
   return (
     <div
       ref={cardRef}
-      className={`note-card ${isDragging ? 'dragging' : ''} ${isResizing ? 'resizing' : ''} ${isEditing ? 'editing' : ''}`}
+      data-card-id={cardId}
+      className={`note-card ${isDragging ? 'dragging' : ''} ${isResizing ? 'resizing' : ''} ${isEditing ? 'editing' : ''} ${highlight ? 'highlight-breathe' : ''}`}
       style={{
         left: card.x,
         top: card.y,

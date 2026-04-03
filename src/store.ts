@@ -1,12 +1,13 @@
 import { create } from 'zustand'
 import { shallow } from 'zustand/shallow'
 import { v4 as uuid } from 'uuid'
-import type { Canvas, Card } from './types'
+import type { Canvas, Card, CanvasLabel, Section, Connection } from './types'
 
 interface AppState {
   canvases: Canvas[]
   activeCanvasId: string | null
   editingCardId: string | null
+  highlightCardId: string | null
   loaded: boolean
 
   loadData: () => Promise<void>
@@ -22,14 +23,33 @@ interface AppState {
   deleteCard: (cardId: string) => void
   moveCard: (cardId: string, x: number, y: number) => void
   setEditingCard: (cardId: string | null) => void
+  moveCardToCanvas: (cardId: string, targetCanvasId: string) => void
+  setHighlightCard: (cardId: string | null) => void
+
+  addLabel: (x: number, y: number) => void
+  updateLabel: (labelId: string, patch: Partial<CanvasLabel>) => void
+  deleteLabel: (labelId: string) => void
+  moveLabel: (labelId: string, x: number, y: number) => void
+
+  addSection: (x: number, y: number) => void
+  updateSection: (sectionId: string, patch: Partial<Section>) => void
+  deleteSection: (sectionId: string) => void
+  moveSection: (sectionId: string, dx: number, dy: number) => void
+  autoFitSection: (sectionId: string) => void
+
+  addConnection: (fromCardId: string, toCardId: string) => void
+  deleteConnection: (connId: string) => void
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined
+
+const SECTION_COLORS = ['#a78bfa', '#60a5fa', '#34d399', '#fb923c', '#f472b6']
 
 export const useStore = create<AppState>((set, get) => ({
   canvases: [],
   activeCanvasId: null,
   editingCardId: null,
+  highlightCardId: null,
   loaded: false,
 
   loadData: async () => {
@@ -216,6 +236,228 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setEditingCard: (cardId) => set({ editingCardId: cardId }),
+
+  moveCardToCanvas: (cardId, targetCanvasId) => {
+    const { activeCanvasId } = get()
+    if (!activeCanvasId || activeCanvasId === targetCanvasId) return
+    const srcCanvas = get().canvases.find((c) => c.id === activeCanvasId)
+    if (!srcCanvas) return
+    const card = srcCanvas.cards.find((c) => c.id === cardId)
+    if (!card) return
+    set((s) => ({
+      canvases: s.canvases.map((c) => {
+        if (c.id === activeCanvasId)
+          return { ...c, cards: c.cards.filter((cd) => cd.id !== cardId) }
+        if (c.id === targetCanvasId)
+          return { ...c, cards: [...c.cards, { ...card, x: 100, y: 100 }] }
+        return c
+      }),
+      activeCanvasId: targetCanvasId,
+      editingCardId: null,
+      highlightCardId: cardId,
+    }))
+    get().persist()
+  },
+
+  setHighlightCard: (cardId) => set({ highlightCardId: cardId }),
+
+  addLabel: (x, y) => {
+    const { activeCanvasId } = get()
+    if (!activeCanvasId) return
+    const label: CanvasLabel = { id: uuid(), text: '标题', level: 1, x, y, width: 300 }
+    set((s) => ({
+      canvases: s.canvases.map((c) =>
+        c.id === activeCanvasId
+          ? { ...c, labels: [...(c.labels ?? []), label] }
+          : c,
+      ),
+    }))
+    get().persist()
+  },
+
+  updateLabel: (labelId, patch) => {
+    const { activeCanvasId } = get()
+    if (!activeCanvasId) return
+    set((s) => ({
+      canvases: s.canvases.map((c) =>
+        c.id === activeCanvasId
+          ? { ...c, labels: (c.labels ?? []).map((l) => l.id === labelId ? { ...l, ...patch } : l) }
+          : c,
+      ),
+    }))
+    get().persist()
+  },
+
+  deleteLabel: (labelId) => {
+    const { activeCanvasId } = get()
+    if (!activeCanvasId) return
+    set((s) => ({
+      canvases: s.canvases.map((c) =>
+        c.id === activeCanvasId
+          ? { ...c, labels: (c.labels ?? []).filter((l) => l.id !== labelId) }
+          : c,
+      ),
+    }))
+    get().persist()
+  },
+
+  moveLabel: (labelId, x, y) => {
+    const { activeCanvasId } = get()
+    if (!activeCanvasId) return
+    set((s) => ({
+      canvases: s.canvases.map((c) =>
+        c.id === activeCanvasId
+          ? { ...c, labels: (c.labels ?? []).map((l) => l.id === labelId ? { ...l, x, y } : l) }
+          : c,
+      ),
+    }))
+    get().persist()
+  },
+
+  addSection: (x, y) => {
+    const { activeCanvasId } = get()
+    if (!activeCanvasId) return
+    const canvas = get().canvases.find((c) => c.id === activeCanvasId)
+    const existingCount = canvas?.sections?.length ?? 0
+    const color = SECTION_COLORS[existingCount % SECTION_COLORS.length]
+    const section: Section = { id: uuid(), name: '分区', x, y, width: 600, height: 400, color }
+    set((s) => ({
+      canvases: s.canvases.map((c) =>
+        c.id === activeCanvasId
+          ? { ...c, sections: [...(c.sections ?? []), section] }
+          : c,
+      ),
+    }))
+    get().persist()
+  },
+
+  updateSection: (sectionId, patch) => {
+    const { activeCanvasId } = get()
+    if (!activeCanvasId) return
+    set((s) => ({
+      canvases: s.canvases.map((c) =>
+        c.id === activeCanvasId
+          ? { ...c, sections: (c.sections ?? []).map((sec) => sec.id === sectionId ? { ...sec, ...patch } : sec) }
+          : c,
+      ),
+    }))
+    get().persist()
+  },
+
+  deleteSection: (sectionId) => {
+    const { activeCanvasId } = get()
+    if (!activeCanvasId) return
+    set((s) => ({
+      canvases: s.canvases.map((c) =>
+        c.id === activeCanvasId
+          ? { ...c, sections: (c.sections ?? []).filter((sec) => sec.id !== sectionId) }
+          : c,
+      ),
+    }))
+    get().persist()
+  },
+
+  moveSection: (sectionId, dx, dy) => {
+    const { activeCanvasId } = get()
+    if (!activeCanvasId) return
+    const canvas = get().canvases.find((c) => c.id === activeCanvasId)
+    if (!canvas) return
+    const section = (canvas.sections ?? []).find((s) => s.id === sectionId)
+    if (!section) return
+
+    const containedCardIds: string[] = []
+    const containedLabelIds: string[] = []
+    for (const card of canvas.cards) {
+      const cx = card.x + card.width / 2
+      const cy = card.y + (card.height ?? 200) / 2
+      if (cx >= section.x && cx <= section.x + section.width && cy >= section.y && cy <= section.y + section.height)
+        containedCardIds.push(card.id)
+    }
+    for (const label of canvas.labels ?? []) {
+      const cx = label.x + label.width / 2
+      const cy = label.y + 20
+      if (cx >= section.x && cx <= section.x + section.width && cy >= section.y && cy <= section.y + section.height)
+        containedLabelIds.push(label.id)
+    }
+
+    set((s) => ({
+      canvases: s.canvases.map((c) =>
+        c.id === activeCanvasId
+          ? {
+              ...c,
+              sections: (c.sections ?? []).map((sec) => sec.id === sectionId ? { ...sec, x: sec.x + dx, y: sec.y + dy } : sec),
+              cards: c.cards.map((card) => containedCardIds.includes(card.id) ? { ...card, x: card.x + dx, y: card.y + dy } : card),
+              labels: (c.labels ?? []).map((l) => containedLabelIds.includes(l.id) ? { ...l, x: l.x + dx, y: l.y + dy } : l),
+            }
+          : c,
+      ),
+    }))
+    get().persist()
+  },
+
+  autoFitSection: (sectionId) => {
+    const { activeCanvasId } = get()
+    if (!activeCanvasId) return
+    const canvas = get().canvases.find((c) => c.id === activeCanvasId)
+    if (!canvas) return
+    const section = (canvas.sections ?? []).find((s) => s.id === sectionId)
+    if (!section) return
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    let hasContent = false
+    for (const card of canvas.cards) {
+      const cx = card.x + card.width / 2
+      const cy = card.y + (card.height ?? 200) / 2
+      if (cx >= section.x && cx <= section.x + section.width && cy >= section.y && cy <= section.y + section.height) {
+        minX = Math.min(minX, card.x)
+        minY = Math.min(minY, card.y)
+        maxX = Math.max(maxX, card.x + card.width)
+        maxY = Math.max(maxY, card.y + (card.height ?? 200))
+        hasContent = true
+      }
+    }
+    if (!hasContent) return
+    const pad = 24
+    set((s) => ({
+      canvases: s.canvases.map((c) =>
+        c.id === activeCanvasId
+          ? { ...c, sections: (c.sections ?? []).map((sec) => sec.id === sectionId ? { ...sec, x: minX - pad, y: minY - pad - 28, width: maxX - minX + pad * 2, height: maxY - minY + pad * 2 + 28 } : sec) }
+          : c,
+      ),
+    }))
+    get().persist()
+  },
+
+  addConnection: (fromCardId, toCardId) => {
+    const { activeCanvasId } = get()
+    if (!activeCanvasId || fromCardId === toCardId) return
+    const canvas = get().canvases.find((c) => c.id === activeCanvasId)
+    if (!canvas) return
+    const exists = (canvas.connections ?? []).some((c) => c.fromCardId === fromCardId && c.toCardId === toCardId)
+    if (exists) return
+    const conn: Connection = { id: uuid(), fromCardId, toCardId }
+    set((s) => ({
+      canvases: s.canvases.map((c) =>
+        c.id === activeCanvasId
+          ? { ...c, connections: [...(c.connections ?? []), conn] }
+          : c,
+      ),
+    }))
+    get().persist()
+  },
+
+  deleteConnection: (connId) => {
+    const { activeCanvasId } = get()
+    if (!activeCanvasId) return
+    set((s) => ({
+      canvases: s.canvases.map((c) =>
+        c.id === activeCanvasId
+          ? { ...c, connections: (c.connections ?? []).filter((cn) => cn.id !== connId) }
+          : c,
+      ),
+    }))
+    get().persist()
+  },
 }))
 
 export function useActiveCanvas() {
@@ -265,4 +507,33 @@ export function useCardActions() {
     }),
     shallow,
   )
+}
+
+export function useActiveLabels() {
+  return useStore((s) => {
+    const c = s.canvases.find((c) => c.id === s.activeCanvasId)
+    return c?.labels ?? []
+  })
+}
+
+export function useActiveSections() {
+  return useStore((s) => {
+    const c = s.canvases.find((c) => c.id === s.activeCanvasId)
+    return c?.sections ?? []
+  })
+}
+
+export function useActiveConnections() {
+  return useStore((s) => {
+    const c = s.canvases.find((c) => c.id === s.activeCanvasId)
+    return c?.connections ?? []
+  })
+}
+
+export function useHighlightCard() {
+  return useStore((s) => s.highlightCardId)
+}
+
+export function useAllCanvases() {
+  return useStore((s) => s.canvases.map((c) => ({ id: c.id, name: c.name })), shallow)
 }
