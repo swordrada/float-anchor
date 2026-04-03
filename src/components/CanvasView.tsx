@@ -75,6 +75,7 @@ export default function CanvasView() {
   const addSection = useStore((s) => s.addSection)
   const highlightCardId = useHighlightCard()
   const setHighlightCard = useStore((s) => s.setHighlightCard)
+  const saveViewport = useStore((s) => s.saveViewport)
   const meta = useActiveCanvasMeta()
   const cards = useActiveCards()
   const connections = useActiveConnections()
@@ -123,12 +124,44 @@ export default function CanvasView() {
     cullTimer.current = setTimeout(() => setCullTick((t) => t + 1), CULL_THROTTLE)
   }, [])
 
+  const prevCanvasId = useRef<string | null>(null)
+
   useEffect(() => {
-    pan.current = { x: 0, y: 0 }
-    scaleVal.current = 1
+    if (prevCanvasId.current && prevCanvasId.current !== meta?.id) {
+      saveViewport(prevCanvasId.current, {
+        panX: pan.current.x,
+        panY: pan.current.y,
+        scale: scaleVal.current,
+      })
+    }
+
+    const canvas = useStore.getState().canvases.find((c) => c.id === meta?.id)
+    const vp = canvas?.viewport
+    if (vp) {
+      pan.current = { x: vp.panX, y: vp.panY }
+      scaleVal.current = vp.scale
+    } else {
+      pan.current = { x: 0, y: 0 }
+      scaleVal.current = 1
+    }
+    prevCanvasId.current = meta?.id ?? null
+
     applyTransform()
     setCullTick((t) => t + 1)
-  }, [meta?.id, applyTransform])
+  }, [meta?.id, applyTransform, saveViewport])
+
+  useEffect(() => {
+    return () => {
+      const cid = prevCanvasId.current
+      if (cid) {
+        useStore.getState().saveViewport(cid, {
+          panX: pan.current.x,
+          panY: pan.current.y,
+          scale: scaleVal.current,
+        })
+      }
+    }
+  }, [])
 
   useEffect(() => {
     const vp = viewportRef.current

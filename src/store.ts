@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { shallow } from 'zustand/shallow'
 import { v4 as uuid } from 'uuid'
-import type { Canvas, Card, CanvasLabel, Section, Connection } from './types'
+import type { Canvas, Card, CanvasLabel, Section, Connection, CanvasViewport } from './types'
 
 interface AppState {
   canvases: Canvas[]
@@ -39,6 +39,8 @@ interface AppState {
 
   addConnection: (fromCardId: string, toCardId: string) => void
   deleteConnection: (connId: string) => void
+
+  saveViewport: (canvasId: string, viewport: CanvasViewport) => void
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined
@@ -513,6 +515,15 @@ export const useStore = create<AppState>((set, get) => ({
     }))
     get().persist()
   },
+
+  saveViewport: (canvasId, viewport) => {
+    set((s) => ({
+      canvases: s.canvases.map((c) =>
+        c.id === canvasId ? { ...c, viewport } : c,
+      ),
+    }))
+    get().persist()
+  },
 }))
 
 export function useActiveCanvas() {
@@ -587,6 +598,14 @@ export function useActiveConnections() {
 
 export function useHighlightCard() {
   return useStore((s) => s.highlightCardId)
+}
+
+export function useCanvasViewport(canvasId: string | null) {
+  return useStore((s) => {
+    if (!canvasId) return undefined
+    const c = s.canvases.find((cv) => cv.id === canvasId)
+    return c?.viewport
+  })
 }
 
 export function useAllCanvases() {

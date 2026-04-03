@@ -34,6 +34,12 @@ export interface Connection {
   toCardId: string
 }
 
+export interface CanvasViewport {
+  panX: number
+  panY: number
+  scale: number
+}
+
 export interface Canvas {
   id: string
   name: string
@@ -41,6 +47,7 @@ export interface Canvas {
   labels?: CanvasLabel[]
   sections?: Section[]
   connections?: Connection[]
+  viewport?: CanvasViewport
 }
 
 export interface AppData {
