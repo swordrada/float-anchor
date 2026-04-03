@@ -162,44 +162,40 @@ export const useStore = create<AppState>((set, get) => ({
     const self = canvas.cards.find((c) => c.id === cardId)
     if (!self) return
 
-    const SNAP_DIST = 18
-    const GAP = 14
+    const SNAP_DIST = 10
+    const GAP = 12
     const selfW = self.width
     const selfH = self.height ?? 300
 
-    let sx = x
-    let sy = y
-    let snappedX = false
-    let snappedY = false
+    let bestX = x
+    let bestY = y
+    let bestDx = SNAP_DIST
+    let bestDy = SNAP_DIST
 
     for (const other of canvas.cards) {
       if (other.id === cardId) continue
       const ow = other.width
       const oh = other.height ?? 300
 
-      if (!snappedX) {
-        const dLeftRight = x - (other.x + ow + GAP)
-        if (Math.abs(dLeftRight) < SNAP_DIST) { sx = other.x + ow + GAP; snappedX = true }
-        const dRightLeft = (x + selfW) - (other.x - GAP)
-        if (Math.abs(dRightLeft) < SNAP_DIST) { sx = other.x - GAP - selfW; snappedX = true }
-        const dLeftLeft = x - other.x
-        if (Math.abs(dLeftLeft) < SNAP_DIST) { sx = other.x; snappedX = true }
-        const dRightRight = (x + selfW) - (other.x + ow)
-        if (Math.abs(dRightRight) < SNAP_DIST) { sx = other.x + ow - selfW; snappedX = true }
+      const xSnaps: [number, number][] = [
+        [Math.abs(x - (other.x + ow + GAP)), other.x + ow + GAP],
+        [Math.abs((x + selfW) - (other.x - GAP)), other.x - GAP - selfW],
+        [Math.abs(x - other.x), other.x],
+        [Math.abs((x + selfW) - (other.x + ow)), other.x + ow - selfW],
+      ]
+      for (const [dist, snap] of xSnaps) {
+        if (dist < bestDx) { bestDx = dist; bestX = snap }
       }
 
-      if (!snappedY) {
-        const dTopBottom = y - (other.y + oh + GAP)
-        if (Math.abs(dTopBottom) < SNAP_DIST) { sy = other.y + oh + GAP; snappedY = true }
-        const dBottomTop = (y + selfH) - (other.y - GAP)
-        if (Math.abs(dBottomTop) < SNAP_DIST) { sy = other.y - GAP - selfH; snappedY = true }
-        const dTopTop = y - other.y
-        if (Math.abs(dTopTop) < SNAP_DIST) { sy = other.y; snappedY = true }
-        const dBottomBottom = (y + selfH) - (other.y + oh)
-        if (Math.abs(dBottomBottom) < SNAP_DIST) { sy = other.y + oh - selfH; snappedY = true }
+      const ySnaps: [number, number][] = [
+        [Math.abs(y - other.y), other.y],
+        [Math.abs((y + selfH) - (other.y + oh)), other.y + oh - selfH],
+        [Math.abs(y - (other.y + oh + GAP)), other.y + oh + GAP],
+        [Math.abs((y + selfH) - (other.y - GAP)), other.y - GAP - selfH],
+      ]
+      for (const [dist, snap] of ySnaps) {
+        if (dist < bestDy) { bestDy = dist; bestY = snap }
       }
-
-      if (snappedX && snappedY) break
     }
 
     set((s) => ({
@@ -208,7 +204,7 @@ export const useStore = create<AppState>((set, get) => ({
           ? {
               ...c,
               cards: c.cards.map((card) =>
-                card.id === cardId ? { ...card, x: sx, y: sy } : card,
+                card.id === cardId ? { ...card, x: bestX, y: bestY } : card,
               ),
             }
           : c,
