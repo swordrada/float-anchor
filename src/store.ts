@@ -241,9 +241,6 @@ export const useStore = create<AppState>((set, get) => ({
         if (inside && !wasMember) {
           return { ...sec, cardIds: [...members, cardId] }
         }
-        if (!inside && wasMember) {
-          return { ...sec, cardIds: members.filter((id) => id !== cardId) }
-        }
         return sec
       })
     }
@@ -278,10 +275,16 @@ export const useStore = create<AppState>((set, get) => ({
     const SECTION_PAD = 24
     const SECTION_HEADER = 36
 
+    const isFullyInside = (cd: Card, sec: Section) =>
+      cd.x >= sec.x && cd.y >= sec.y + 32 &&
+      cd.x + cd.width <= sec.x + sec.width &&
+      cd.y + (cd.height ?? 200) <= sec.y + sec.height
+
     const snappedToMemberOf = (cd: Card, sec: Section): boolean => {
       const members = sec.cardIds ?? []
       if (members.length === 0) return false
       for (const mId of members) {
+        if (mId === cd.id) continue
         const member = canvas.cards.find((c) => c.id === mId)
         if (!member) continue
         const mW = member.width; const mH = member.height ?? 300
@@ -299,15 +302,9 @@ export const useStore = create<AppState>((set, get) => ({
       return false
     }
 
-    let changed = false
-    const updatedSections = sections.map((sec) => {
-      const members = sec.cardIds ?? []
-      if (members.includes(cardId)) return sec
-      if (!snappedToMemberOf(card, sec)) return sec
-
-      changed = true
-      const newMembers = [...members, cardId]
-      const allCards = [...canvas.cards.filter((c) => members.includes(c.id)), card]
+    const expandToFit = (sec: Section, memberIds: string[]): Section => {
+      const allCards = canvas.cards.filter((c) => memberIds.includes(c.id))
+      if (allCards.length === 0) return sec
       let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
       for (const ac of allCards) {
         minX = Math.min(minX, ac.x)
@@ -317,12 +314,28 @@ export const useStore = create<AppState>((set, get) => ({
       }
       return {
         ...sec,
-        cardIds: newMembers,
+        cardIds: memberIds,
         x: Math.min(sec.x, minX - SECTION_PAD),
         y: Math.min(sec.y, minY - SECTION_PAD - SECTION_HEADER),
         width: Math.max(sec.width, maxX - Math.min(sec.x, minX - SECTION_PAD) + SECTION_PAD),
         height: Math.max(sec.height, maxY - Math.min(sec.y, minY - SECTION_PAD - SECTION_HEADER) + SECTION_PAD + SECTION_HEADER),
       }
+    }
+
+    let changed = false
+    const updatedSections = sections.map((sec) => {
+      const members = sec.cardIds ?? []
+      const isMember = members.includes(cardId)
+
+      if (isMember) {
+        if (isFullyInside(card, sec)) return sec
+        changed = true
+        return expandToFit(sec, members)
+      }
+
+      if (!snappedToMemberOf(card, sec)) return sec
+      changed = true
+      return expandToFit(sec, [...members, cardId])
     })
 
     if (!changed) return
