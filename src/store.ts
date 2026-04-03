@@ -223,6 +223,8 @@ export const useStore = create<AppState>((set, get) => ({
     const movedCard = { ...self, x: bestX, y: bestY }
     const sections = canvas.sections ?? []
     let updatedSections = sections
+    const SECTION_PAD = 24
+    const SECTION_HEADER = 36
 
     if (sections.length > 0) {
       const isFullyInside = (card: Card, sec: Section) =>
@@ -230,16 +232,61 @@ export const useStore = create<AppState>((set, get) => ({
         card.x + card.width <= sec.x + sec.width &&
         card.y + (card.height ?? 200) <= sec.y + sec.height
 
+      const snappedToMemberOf = (card: Card, sec: Section): boolean => {
+        const members = sec.cardIds ?? []
+        if (members.length === 0) return false
+        for (const mId of members) {
+          const member = canvas.cards.find((c) => c.id === mId)
+          if (!member) continue
+          const mW = member.width
+          const mH = member.height ?? 300
+          const cW = card.width
+          const cH = card.height ?? 300
+          const touchH = (Math.abs(card.x - (member.x + mW + GAP)) < 1) ||
+                        (Math.abs((card.x + cW) - (member.x - GAP)) < 1) ||
+                        (Math.abs(card.x - member.x) < 1) ||
+                        (Math.abs((card.x + cW) - (member.x + mW)) < 1)
+          const touchV = (Math.abs(card.y - member.y) < 1) ||
+                        (Math.abs((card.y + cH) - (member.y + mH)) < 1) ||
+                        (Math.abs(card.y - (member.y + mH + GAP)) < 1) ||
+                        (Math.abs((card.y + cH) - (member.y - GAP)) < 1)
+          if (touchH || touchV) return true
+        }
+        return false
+      }
+
       updatedSections = sections.map((sec) => {
         const members = sec.cardIds ?? []
         const inside = isFullyInside(movedCard, sec)
         const wasMember = members.includes(cardId)
+
         if (inside && !wasMember) {
           return { ...sec, cardIds: [...members, cardId] }
         }
         if (!inside && wasMember) {
           return { ...sec, cardIds: members.filter((id) => id !== cardId) }
         }
+
+        if (!inside && !wasMember && snappedToMemberOf(movedCard, sec)) {
+          const newMembers = [...members, cardId]
+          const allCards = [...canvas.cards.filter((c) => members.includes(c.id)), movedCard]
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+          for (const ac of allCards) {
+            minX = Math.min(minX, ac.x)
+            minY = Math.min(minY, ac.y)
+            maxX = Math.max(maxX, ac.x + ac.width)
+            maxY = Math.max(maxY, ac.y + (ac.height ?? 200))
+          }
+          return {
+            ...sec,
+            cardIds: newMembers,
+            x: Math.min(sec.x, minX - SECTION_PAD),
+            y: Math.min(sec.y, minY - SECTION_PAD - SECTION_HEADER),
+            width: Math.max(sec.width, maxX - Math.min(sec.x, minX - SECTION_PAD) + SECTION_PAD),
+            height: Math.max(sec.height, maxY - Math.min(sec.y, minY - SECTION_PAD - SECTION_HEADER) + SECTION_PAD + SECTION_HEADER),
+          }
+        }
+
         return sec
       })
     }

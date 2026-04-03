@@ -39,6 +39,8 @@ export default function RichEditor({ content, onChange }: Props) {
       Link.configure({
         openOnClick: false,
         HTMLAttributes: { class: 'editor-link' },
+        protocols: ['http', 'https', 'mailto', { scheme: 'fa', optionalSlashes: true }],
+        validate: (url) => /^(https?:|mailto:|fa:)/.test(url),
       }),
       Placeholder.configure({
         placeholder: '输入内容，支持 Markdown 语法...',

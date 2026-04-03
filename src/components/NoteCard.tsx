@@ -12,6 +12,36 @@ interface Props {
 
 const remarkPlugins = [remarkGfm]
 
+function FaCardLink({ targetId, ...rest }: { targetId: string } & Record<string, any>) {
+  const store = useStore.getState()
+  const allCanvases = store.canvases
+  let targetTitle = '无标题卡片'
+  for (const c of allCanvases) {
+    const found = c.cards.find((card) => card.id === targetId)
+    if (found) { targetTitle = found.title || '无标题卡片'; break }
+  }
+  return (
+    <a
+      {...rest}
+      href="#"
+      className="fa-card-link"
+      onClick={(e: React.MouseEvent) => {
+        e.preventDefault()
+        e.stopPropagation()
+        const s = useStore.getState()
+        const canvas = s.canvases.find((c) => c.id === s.activeCanvasId)
+        const targetCard = canvas?.cards.find((c) => c.id === targetId)
+        if (targetCard) {
+          s.setHighlightCard(targetId)
+          window.dispatchEvent(new CustomEvent('fa-fly-to-card', { detail: { cardId: targetId } }))
+        }
+      }}
+    >
+      {targetTitle}
+    </a>
+  )
+}
+
 const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight }: Props) {
   const card = useCardById(cardId)
   const isEditing = useIsEditing(cardId)
@@ -172,31 +202,14 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight }: Prop
   )
 
   const mdComponents = useMemo<Partial<Components>>(() => ({
-    a: ({ href, children, ...rest }) => {
+    a: ({ href, ...rest }) => {
       if (href?.startsWith('fa://')) {
         const targetId = href.slice(5)
         return (
-          <a
-            {...rest}
-            href="#"
-            className="fa-card-link"
-            onClick={(e) => {
-              e.preventDefault()
-              e.stopPropagation()
-              const store = useStore.getState()
-              const canvas = store.canvases.find((c) => c.id === store.activeCanvasId)
-              const targetCard = canvas?.cards.find((c) => c.id === targetId)
-              if (targetCard) {
-                store.setHighlightCard(targetId)
-                window.dispatchEvent(new CustomEvent('fa-fly-to-card', { detail: { cardId: targetId } }))
-              }
-            }}
-          >
-            {children}
-          </a>
+          <FaCardLink targetId={targetId} {...rest} />
         )
       }
-      return <a href={href} {...rest} target="_blank" rel="noopener noreferrer">{children}</a>
+      return <a href={href} {...rest} target="_blank" rel="noopener noreferrer" />
     },
   }), [])
 

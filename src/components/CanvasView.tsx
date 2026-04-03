@@ -290,8 +290,14 @@ export default function CanvasView() {
             icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" /><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" /></svg>,
             onClick: () => {
               if (!card) return
-              const linkText = `[${card.title || '无标题卡片'}](fa://${cardId})`
-              navigator.clipboard.writeText(linkText)
+              const title = card.title || '无标题卡片'
+              const html = `<a href="fa://${cardId}">${title}</a>`
+              const text = `[${title}](fa://${cardId})`
+              const blob = new Blob([html], { type: 'text/html' })
+              const textBlob = new Blob([text], { type: 'text/plain' })
+              navigator.clipboard.write([
+                new ClipboardItem({ 'text/html': blob, 'text/plain': textBlob })
+              ])
             },
           },
           {
