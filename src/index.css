@@ -1499,6 +1499,43 @@ input {
   background: rgba(255, 255, 255, 0.25);
 }
 
+[data-theme="dark"] .canvas-viewport {
+  background-color: #1e1e22;
+  background-image: radial-gradient(circle, #3a3a40 1px, transparent 1px);
+}
+
+[data-theme="dark"] .conn-line {
+  stroke: #555;
+}
+
+[data-theme="dark"] .conn-line.active {
+  stroke: var(--accent);
+}
+
+[data-theme="dark"] .conn-delete-btn {
+  background: #2a2a2f;
+  border-color: #444;
+  color: #ccc;
+}
+
+[data-theme="dark"] .canvas-empty-cards p {
+  background: rgba(30, 30, 34, 0.7);
+}
+
+[data-theme="dark"] .canvas-count {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+[data-theme="dark"] .canvas-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+[data-theme="dark"] .canvas-locate-btn {
+  background: #2a2a2f;
+  border-color: #444;
+  color: #ccc;
+}
+
 /* ===== Settings Modal ===== */
 .settings-overlay {
   position: fixed;

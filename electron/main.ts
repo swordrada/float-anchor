@@ -181,7 +181,22 @@ ipcMain.handle('trigger-update', async (_event, downloadUrl: string, assetName: 
   }
 })
 
+function getThemeFromSettings(): 'light' | 'dark' {
+  try {
+    const { settingsFile: file } = getDataPaths()
+    if (fs.existsSync(file)) {
+      const s = JSON.parse(fs.readFileSync(file, 'utf-8'))
+      if (s.theme === 'dark') return 'dark'
+    }
+  } catch {}
+  return 'light'
+}
+
 function createWindow() {
+  const theme = getThemeFromSettings()
+  const isDark = theme === 'dark'
+  const bgColor = isDark ? '#1a1a1e' : '#f0f0f0'
+
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -189,12 +204,12 @@ function createWindow() {
     minHeight: 600,
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'hidden',
     titleBarOverlay: process.platform === 'win32' ? {
-      color: '#f0f0f0',
-      symbolColor: '#555',
+      color: isDark ? '#212125' : '#f0f0f0',
+      symbolColor: isDark ? '#ccc' : '#555',
       height: 38,
     } : undefined,
     trafficLightPosition: { x: 16, y: 16 },
-    backgroundColor: '#f0f0f0',
+    backgroundColor: bgColor,
     show: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),

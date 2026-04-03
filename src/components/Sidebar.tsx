@@ -130,8 +130,8 @@ export default function Sidebar() {
       <div className="sidebar-header">
         <div className="sidebar-logo">
           <svg width="22" height="22" viewBox="0 0 100 100" className="logo-icon">
-            <rect x="5" y="5" width="90" height="90" rx="20" fill="#fff" stroke="#dcdcdc" strokeWidth="3" />
-            <text x="50" y="62" textAnchor="middle" fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" fontSize="46" fontWeight="700" fill="#2d2d2d">FA</text>
+            <rect x="5" y="5" width="90" height="90" rx="20" fill="var(--card-bg)" stroke="var(--border)" strokeWidth="3" />
+            <text x="50" y="62" textAnchor="middle" fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" fontSize="46" fontWeight="700" fill="var(--text-primary)">FA</text>
             <polyline points="35,78 50,88 65,78" fill="none" stroke="#4a90d9" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
             <circle cx="50" cy="90" r="3" fill="#4a90d9" />
           </svg>

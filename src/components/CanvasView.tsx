@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from 'react'
-import { useStore, useActiveCanvasMeta, useActiveCards, useActiveConnections, useActiveLabels, useActiveSections, useHighlightCard } from '../store'
+import { useStore, useActiveCanvasMeta, useActiveCards, useActiveConnections, useActiveLabels, useActiveSections, useHighlightCard, useSettings } from '../store'
 import NoteCard from './NoteCard'
 import CanvasLabelComponent from './CanvasLabel'
 import SectionBox from './SectionBox'
@@ -81,6 +81,8 @@ export default function CanvasView() {
   const connections = useActiveConnections()
   const labels = useActiveLabels()
   const sections = useActiveSections()
+  const settings = useSettings()
+  const arrowColor = settings.theme === 'dark' ? '#888' : '#bbb'
 
   const viewportRef = useRef<HTMLDivElement>(null)
   const innerRef = useRef<HTMLDivElement>(null)
@@ -521,7 +523,7 @@ export default function CanvasView() {
     return (
       <main className="canvas-empty-state">
         <div className="empty-hint">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#bbb" strokeWidth="1.5">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5">
             <rect x="3" y="3" width="18" height="18" rx="3" />
             <line x1="12" y1="8" x2="12" y2="16" />
             <line x1="8" y1="12" x2="16" y2="12" />
@@ -564,7 +566,7 @@ export default function CanvasView() {
           <svg className="connections-layer">
             <defs>
               <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                <polygon points="0 0, 10 3.5, 0 7" fill="#bbb" />
+                <polygon points="0 0, 10 3.5, 0 7" fill={arrowColor} />
               </marker>
               <marker id="arrowhead-active" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
                 <polygon points="0 0, 10 3.5, 0 7" fill="var(--accent)" />

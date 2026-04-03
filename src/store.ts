@@ -702,3 +702,7 @@ export function useCanvasViewport(canvasId: string | null) {
 export function useAllCanvases() {
   return useStore((s) => s.canvases.map((c) => ({ id: c.id, name: c.name })), shallow)
 }
+
+export function useSettings() {
+  return useStore((s) => s.settings)
+}
