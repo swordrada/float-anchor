@@ -932,17 +932,12 @@ input {
   position: absolute;
   border: 2px dashed;
   border-radius: var(--radius-lg);
-  z-index: 1;
-  contain: layout style;
+  z-index: 0;
+  pointer-events: none;
 }
 
 .section-box.dragging {
   opacity: 0.85;
-  z-index: 95;
-}
-
-.section-box.resizing {
-  z-index: 95;
 }
 
 .section-header {
@@ -952,6 +947,7 @@ input {
   padding: 6px 10px;
   cursor: grab;
   user-select: none;
+  pointer-events: auto;
 }
 
 .section-box.dragging .section-header {
@@ -1024,6 +1020,7 @@ input {
   justify-content: flex-end;
   opacity: 0;
   transition: opacity 0.15s;
+  pointer-events: auto;
 }
 
 .section-box:hover .section-resize-handle {
