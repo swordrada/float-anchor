@@ -5,9 +5,27 @@
 <h1 align="center">FloatAnchor</h1>
 
 <p align="center">
+  <b>开源 · 免费 · 本地优先</b><br>
   一款简洁的白板卡片笔记软件，支持 macOS 和 Windows。<br>
   灵感来自 <a href="https://heptabase.com">Heptabase</a>，专注于自由画布 + 卡片笔记的核心体验。
 </p>
+
+<p align="center">
+  <a href="https://github.com/swordrada/float-anchor/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License">
+  </a>
+  <img src="https://img.shields.io/badge/price-free-brightgreen.svg" alt="Free">
+  <img src="https://img.shields.io/badge/data-100%25%20local-orange.svg" alt="Local Storage">
+</p>
+
+---
+
+## 为什么选择 FloatAnchor？
+
+> **完全开源** — 代码在 GitHub 公开，任何人都可以审查、修改、分发。  
+> **永久免费** — 没有付费墙、没有订阅、没有增值收费，所有功能开箱即用。  
+> **数据属于你** — 笔记 100% 存储在你的电脑本地，不经过任何服务器，没有账号体系，没有云同步，你的数据只有你自己能看到。  
+> **无商业化** — 这是一个纯粹的个人项目，不含广告、不采集数据、不追踪用户行为。
 
 ---
 
@@ -18,7 +36,7 @@
 - **所见即所得编辑** — 内置 WYSIWYG 编辑器，支持标题、加粗、斜体、删除线、列表、引用、代码、链接等格式
 - **自由拖拽** — 卡片可拖动到画布任意位置，右下角手柄可缩放卡片大小
 - **画布导航** — 双指滑动（macOS）/ 右键拖拽（Windows）平移画布；捏合缩放（macOS）/ Ctrl+滚轮（Windows）缩放画布
-- **纯本地存储** — 所有数据保存在本地，不上传任何云端
+- **纯本地存储** — 所有数据保存在本地，不上传任何云端，不需要注册账号
 
 ## 下载安装
 
@@ -96,4 +114,4 @@ Electron + React + TypeScript + Vite + TipTap + Zustand
 
 ## License
 
-MIT
+[MIT License](LICENSE) — 完全开源，自由使用、修改和分发。
