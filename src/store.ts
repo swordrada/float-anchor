@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { shallow } from 'zustand/shallow'
 import { v4 as uuid } from 'uuid'
-import type { Canvas, Card, CanvasLabel, Section, Connection, CanvasViewport } from './types'
+import type { Canvas, Card, CanvasLabel, Section, Connection, CanvasViewport, AppSettings, WebDAVConfig } from './types'
 
 interface AppState {
   canvases: Canvas[]
@@ -9,9 +9,18 @@ interface AppState {
   editingCardId: string | null
   highlightCardId: string | null
   loaded: boolean
+  settings: AppSettings
+  syncStatus: 'idle' | 'syncing' | 'success' | 'error'
+  showSettings: boolean
 
   loadData: () => Promise<void>
   persist: () => void
+  loadSettings: () => Promise<void>
+  saveSettings: (s: AppSettings) => Promise<void>
+  setTheme: (theme: 'light' | 'dark') => void
+  setWebDAVConfig: (config: WebDAVConfig | undefined) => void
+  setShowSettings: (v: boolean) => void
+  setSyncStatus: (s: 'idle' | 'syncing' | 'success' | 'error') => void
 
   addCanvas: (name: string) => void
   deleteCanvas: (id: string) => void
@@ -46,6 +55,7 @@ interface AppState {
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined
+let syncTimer: ReturnType<typeof setTimeout> | undefined
 
 const SECTION_COLORS = ['#9ca3af', '#60a5fa', '#34d399', '#fb923c', '#f472b6']
 
@@ -55,6 +65,9 @@ export const useStore = create<AppState>((set, get) => ({
   editingCardId: null,
   highlightCardId: null,
   loaded: false,
+  settings: { theme: 'light' },
+  syncStatus: 'idle',
+  showSettings: false,
 
   loadData: async () => {
     try {
@@ -77,10 +90,50 @@ export const useStore = create<AppState>((set, get) => ({
   persist: () => {
     clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
-      const { canvases, activeCanvasId } = get()
+      const { canvases, activeCanvasId, settings } = get()
       window.electronAPI.writeData({ canvases, activeCanvasId })
+      if (settings.webdav?.server) {
+        clearTimeout(syncTimer)
+        syncTimer = setTimeout(() => {
+          set({ syncStatus: 'syncing' })
+          window.electronAPI.webdavAutoSync(settings.webdav!).then((res) => {
+            set({ syncStatus: res.success ? 'success' : 'error' })
+            if (res.success) setTimeout(() => set({ syncStatus: 'idle' }), 3000)
+          }).catch(() => set({ syncStatus: 'error' }))
+        }, 5000)
+      }
     }, 300)
   },
+
+  loadSettings: async () => {
+    try {
+      const s = await window.electronAPI.readSettings()
+      if (s) {
+        set({ settings: s })
+        document.documentElement.dataset.theme = s.theme
+      }
+    } catch { /* ignore */ }
+  },
+
+  saveSettings: async (s) => {
+    set({ settings: s })
+    document.documentElement.dataset.theme = s.theme
+    await window.electronAPI.writeSettings(s)
+  },
+
+  setTheme: (theme) => {
+    const s = { ...get().settings, theme }
+    get().saveSettings(s)
+  },
+
+  setWebDAVConfig: (config) => {
+    const s = { ...get().settings, webdav: config }
+    get().saveSettings(s)
+  },
+
+  setShowSettings: (v) => set({ showSettings: v }),
+
+  setSyncStatus: (s) => set({ syncStatus: s }),
 
   addCanvas: (name) => {
     const canvas: Canvas = { id: uuid(), name, cards: [] }

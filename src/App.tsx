@@ -2,13 +2,31 @@ import { useEffect, useState } from 'react'
 import { useStore } from './store'
 import Sidebar from './components/Sidebar'
 import CanvasView from './components/CanvasView'
+import SettingsModal from './components/SettingsModal'
 
 export default function App() {
-  const { loaded, loadData } = useStore()
+  const { loaded, loadData, loadSettings } = useStore()
+  const showSettings = useStore((s) => s.showSettings)
   const [platform, setPlatform] = useState<string>('darwin')
 
   useEffect(() => {
-    loadData()
+    loadSettings().then(() => {
+      loadData().then(() => {
+        const { settings } = useStore.getState()
+        if (settings.webdav?.server) {
+          useStore.getState().setSyncStatus('syncing')
+          window.electronAPI.webdavStartupSync(settings.webdav).then((res) => {
+            if (res.success && res.action === 'downloaded' && res.data) {
+              useStore.setState({
+                canvases: res.data.canvases,
+                activeCanvasId: res.data.activeCanvasId ?? useStore.getState().activeCanvasId,
+              })
+            }
+            useStore.getState().setSyncStatus(res.success ? 'idle' : 'error')
+          }).catch(() => useStore.getState().setSyncStatus('error'))
+        }
+      })
+    })
     window.electronAPI.getPlatform().then(setPlatform)
   }, [])
 
@@ -61,6 +79,7 @@ export default function App() {
         <Sidebar />
         <CanvasView />
       </div>
+      {showSettings && <SettingsModal />}
     </div>
   )
 }

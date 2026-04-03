@@ -7,13 +7,15 @@ import { exec } from 'node:child_process'
 
 let dataDir = ''
 let dataFile = ''
+let settingsFile = ''
 
 function getDataPaths() {
   if (!dataDir) {
     dataDir = path.join(app.getPath('userData'), 'data')
     dataFile = path.join(dataDir, 'float-anchor.json')
+    settingsFile = path.join(dataDir, 'float-anchor-settings.json')
   }
-  return { dataDir, dataFile }
+  return { dataDir, dataFile, settingsFile }
 }
 
 let mainWindow: BrowserWindow | null = null
@@ -257,6 +259,169 @@ ipcMain.handle('write-data', async (_event, data: unknown) => {
   } catch (err) {
     console.error('Failed to write data:', err)
     return false
+  }
+})
+
+ipcMain.handle('read-settings', async () => {
+  try {
+    const { settingsFile: file } = getDataPaths()
+    ensureDataDir()
+    if (fs.existsSync(file)) {
+      return JSON.parse(fs.readFileSync(file, 'utf-8'))
+    }
+  } catch (err) {
+    console.error('Failed to read settings:', err)
+  }
+  return null
+})
+
+ipcMain.handle('write-settings', async (_event, data: unknown) => {
+  try {
+    const { settingsFile: file } = getDataPaths()
+    ensureDataDir()
+    fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf-8')
+    return true
+  } catch (err) {
+    console.error('Failed to write settings:', err)
+    return false
+  }
+})
+
+/* ===== WebDAV Sync ===== */
+
+let webdavClient: any = null
+let syncTimer: ReturnType<typeof setTimeout> | undefined
+const WEBDAV_REMOTE_DIR = '/FloatAnchor'
+const WEBDAV_REMOTE_FILE = '/FloatAnchor/float-anchor.json'
+const MAX_BACKUPS = 5
+
+function createBackup() {
+  try {
+    const { dataDir: dir, dataFile: file } = getDataPaths()
+    if (!fs.existsSync(file)) return
+    const backupDir = path.join(dir, 'backups')
+    if (!fs.existsSync(backupDir)) fs.mkdirSync(backupDir, { recursive: true })
+    const ts = new Date().toISOString().replace(/[:.]/g, '-')
+    fs.copyFileSync(file, path.join(backupDir, `backup-${ts}.json`))
+    const files = fs.readdirSync(backupDir).sort()
+    while (files.length > MAX_BACKUPS) {
+      fs.unlinkSync(path.join(backupDir, files.shift()!))
+    }
+  } catch (err) {
+    console.error('Backup failed:', err)
+  }
+}
+
+async function getWebDAVClient(config: { server: string; username: string; password: string }) {
+  const { createClient } = await import('webdav')
+  return createClient(config.server, {
+    username: config.username,
+    password: config.password,
+  })
+}
+
+async function ensureRemoteDir(client: any) {
+  try {
+    if (!await client.exists(WEBDAV_REMOTE_DIR)) {
+      await client.createDirectory(WEBDAV_REMOTE_DIR)
+    }
+  } catch { /* may already exist */ }
+}
+
+ipcMain.handle('webdav-test', async (_event, config: { server: string; username: string; password: string }) => {
+  try {
+    const client = await getWebDAVClient(config)
+    await client.getDirectoryContents('/')
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: String(err) }
+  }
+})
+
+ipcMain.handle('webdav-upload', async (_event, config: { server: string; username: string; password: string }) => {
+  try {
+    const { dataFile: file } = getDataPaths()
+    if (!fs.existsSync(file)) return { success: false, error: 'No data file' }
+    const client = await getWebDAVClient(config)
+    await ensureRemoteDir(client)
+    const raw = fs.readFileSync(file, 'utf-8')
+    const data = JSON.parse(raw)
+    data._syncTimestamp = Date.now()
+    await client.putFileContents(WEBDAV_REMOTE_FILE, JSON.stringify(data, null, 2), { overwrite: true })
+    fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf-8')
+    return { success: true }
+  } catch (err) {
+    return { success: false, error: String(err) }
+  }
+})
+
+ipcMain.handle('webdav-download', async (_event, config: { server: string; username: string; password: string }) => {
+  try {
+    const client = await getWebDAVClient(config)
+    if (!await client.exists(WEBDAV_REMOTE_FILE)) {
+      return { success: true, data: null }
+    }
+    const raw = await client.getFileContents(WEBDAV_REMOTE_FILE, { format: 'text' })
+    const data = JSON.parse(raw as string)
+    return { success: true, data }
+  } catch (err) {
+    return { success: false, error: String(err) }
+  }
+})
+
+ipcMain.handle('webdav-auto-sync', async (_event, config: { server: string; username: string; password: string }) => {
+  try {
+    const { dataFile: file } = getDataPaths()
+    if (!fs.existsSync(file)) return { success: false }
+    createBackup()
+    const client = await getWebDAVClient(config)
+    await ensureRemoteDir(client)
+    const localRaw = fs.readFileSync(file, 'utf-8')
+    const localData = JSON.parse(localRaw)
+    localData._syncTimestamp = Date.now()
+    await client.putFileContents(WEBDAV_REMOTE_FILE, JSON.stringify(localData, null, 2), { overwrite: true })
+    fs.writeFileSync(file, JSON.stringify(localData, null, 2), 'utf-8')
+    mainWindow?.webContents.send('sync-status', { status: 'success' })
+    return { success: true }
+  } catch (err) {
+    mainWindow?.webContents.send('sync-status', { status: 'error', error: String(err) })
+    return { success: false, error: String(err) }
+  }
+})
+
+ipcMain.handle('webdav-startup-sync', async (_event, config: { server: string; username: string; password: string }) => {
+  try {
+    const { dataFile: file } = getDataPaths()
+    const client = await getWebDAVClient(config)
+    if (!await client.exists(WEBDAV_REMOTE_FILE)) {
+      if (fs.existsSync(file)) {
+        await ensureRemoteDir(client)
+        const raw = fs.readFileSync(file, 'utf-8')
+        const data = JSON.parse(raw)
+        data._syncTimestamp = Date.now()
+        await client.putFileContents(WEBDAV_REMOTE_FILE, JSON.stringify(data, null, 2), { overwrite: true })
+        fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf-8')
+      }
+      return { success: true, action: 'uploaded' }
+    }
+    const remoteRaw = await client.getFileContents(WEBDAV_REMOTE_FILE, { format: 'text' })
+    const remoteData = JSON.parse(remoteRaw as string)
+    const remoteTs = remoteData._syncTimestamp || 0
+    let localTs = 0
+    if (fs.existsSync(file)) {
+      try {
+        const localData = JSON.parse(fs.readFileSync(file, 'utf-8'))
+        localTs = localData._syncTimestamp || 0
+      } catch {}
+    }
+    if (remoteTs > localTs) {
+      createBackup()
+      fs.writeFileSync(file, JSON.stringify(remoteData, null, 2), 'utf-8')
+      return { success: true, action: 'downloaded', data: remoteData }
+    }
+    return { success: true, action: 'up-to-date' }
+  } catch (err) {
+    return { success: false, error: String(err) }
   }
 })
 
