@@ -1,5 +1,5 @@
 import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react'
-import ReactMarkdown, { Components } from 'react-markdown'
+import ReactMarkdown, { Components, defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { useStore, useCardById, useIsEditing, useCardActions } from '../store'
 import RichEditor from './RichEditor'
@@ -11,6 +11,11 @@ interface Props {
 }
 
 const remarkPlugins = [remarkGfm]
+
+function faUrlTransform(url: string): string {
+  if (url.startsWith('fa://') || url.startsWith('fa:')) return url
+  return defaultUrlTransform(url)
+}
 
 function navigateToCard(targetId: string) {
   const s = useStore.getState()
@@ -214,8 +219,11 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight }: Prop
 
   const mdComponents = useMemo<Partial<Components>>(() => ({
     a: ({ href, children }) => {
-      if (href?.startsWith('fa://')) {
-        return <FaCardLink targetId={href.slice(5)} />
+      if (href) {
+        const faMatch = href.match(/^fa:\/\/(.+)/) || href.match(/^fa:(.+)/)
+        if (faMatch) {
+          return <FaCardLink targetId={faMatch[1]} />
+        }
       }
       return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
     },
@@ -224,7 +232,7 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight }: Prop
   const renderedContent = useMemo(() => {
     if (!card?.content) return null
     return (
-      <ReactMarkdown remarkPlugins={remarkPlugins} components={mdComponents}>
+      <ReactMarkdown remarkPlugins={remarkPlugins} components={mdComponents} urlTransform={faUrlTransform}>
         {card.content}
       </ReactMarkdown>
     )
