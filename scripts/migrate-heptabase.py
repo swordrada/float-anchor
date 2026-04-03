@@ -239,9 +239,9 @@ def main():
             if not card_data or card_data.get("isTrashed"):
                 continue
 
-            title = card_data.get("title", "无标题")
+            title = card_data.get("title", "")
             md_content = get_card_markdown(card_data, md_library)
-            body = strip_first_heading(md_content)
+            body = strip_first_heading(md_content) if title else md_content
 
             card_width = ci.get("width", 288)
             card_height = ci.get("height")

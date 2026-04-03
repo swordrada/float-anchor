@@ -590,6 +590,10 @@ input {
   min-height: 0;
 }
 
+.card-content.no-title {
+  padding-top: 10px;
+}
+
 .card-content::after {
   content: '';
   position: absolute;

@@ -248,11 +248,13 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale }: Props) {
         </div>
       ) : (
         <>
-          <div className="card-header">
-            <h3 className="card-title">{card.title || '无标题'}</h3>
-          </div>
+          {card.title && (
+            <div className="card-header">
+              <h3 className="card-title">{card.title}</h3>
+            </div>
+          )}
           {card.content ? (
-            <div className="card-content markdown-body">
+            <div className={`card-content markdown-body${card.title ? '' : ' no-title'}`}>
               {renderedContent}
             </div>
           ) : (
