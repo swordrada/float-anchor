@@ -238,22 +238,19 @@ export default function CanvasView() {
             onClick: () => {
               if (!cardId) return
               const el = noteCard as HTMLElement
-              const headerEl = el.querySelector('.card-header')
-              const contentEl = el.querySelector('.card-content')
-              const editModeEl = el.querySelector('.card-edit-mode')
-              const dragHandle = el.querySelector('.card-drag-handle')
 
-              let bestHeight = 24
-              if (dragHandle) bestHeight = dragHandle.getBoundingClientRect().height / scaleVal.current
-              if (headerEl) bestHeight += headerEl.scrollHeight / scaleVal.current
-              if (contentEl) {
-                const inner = contentEl.querySelector('.markdown-body')
-                if (inner) bestHeight += (inner as HTMLElement).scrollHeight / scaleVal.current + 26
-                else bestHeight += contentEl.scrollHeight / scaleVal.current
-              }
-              if (editModeEl) bestHeight += editModeEl.scrollHeight / scaleVal.current
+              const prevHeight = el.style.height
+              const prevContain = el.style.contain
+              el.style.height = 'auto'
+              el.style.contain = 'none'
 
-              bestHeight = Math.max(80, Math.round(bestHeight))
+              void el.offsetHeight
+
+              const naturalHeight = el.scrollHeight
+              el.style.height = prevHeight
+              el.style.contain = prevContain
+
+              const bestHeight = Math.max(80, Math.round(naturalHeight))
               updateCard(cardId, { height: bestHeight })
             },
           },
