@@ -140,6 +140,7 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight }: Prop
       const onUp = () => {
         cancelAnimationFrame(dragRaf)
         setIsDragging(false)
+        useStore.getState().finalizeCardMove(cardId)
         document.removeEventListener('mousemove', onMove)
         document.removeEventListener('mouseup', onUp)
       }
