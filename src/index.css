@@ -585,6 +585,8 @@ input {
   box-shadow: 0 0 0 3px var(--accent-light), var(--shadow-md);
   z-index: 50;
   min-width: 340px;
+  overflow: visible;
+  contain: none;
 }
 
 /* ---- Drag Handle Banner ---- */

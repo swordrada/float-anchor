@@ -69,6 +69,7 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight }: Prop
   const cardRef = useRef<HTMLDivElement>(null)
   const titleRef = useRef<HTMLInputElement>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout>>()
+  const wasEditing = useRef(false)
 
   useEffect(() => {
     if (!isEditing && card) {
@@ -78,32 +79,31 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight }: Prop
   }, [card?.title, card?.content, isEditing])
 
   useEffect(() => {
-    if (!isEditing) return
-    requestAnimationFrame(() => {
-      if (titleRef.current) {
-        titleRef.current.focus()
-        if (card?.title === '新卡片') titleRef.current.select()
-      }
-    })
-  }, [isEditing])
-
-  useEffect(() => {
-    if (!isEditing) return
-    const handler = (e: MouseEvent) => {
-      if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
-        updateCard(cardId, { title, content })
-        setEditingCard(null)
-      }
+    if (isEditing) {
+      wasEditing.current = true
+      requestAnimationFrame(() => {
+        if (titleRef.current) {
+          titleRef.current.focus()
+          if (card?.title === '新卡片') titleRef.current.select()
+        }
+      })
+    } else if (wasEditing.current) {
+      wasEditing.current = false
+      requestAnimationFrame(() => {
+        const el = cardRef.current
+        if (!el) return
+        const prev = el.style.height
+        const prevContain = el.style.contain
+        el.style.height = 'auto'
+        el.style.contain = 'none'
+        void el.offsetHeight
+        const naturalHeight = Math.max(80, el.scrollHeight)
+        el.style.height = prev
+        el.style.contain = prevContain
+        updateCard(cardId, { height: naturalHeight })
+      })
     }
-    const timer = setTimeout(
-      () => document.addEventListener('mousedown', handler),
-      80,
-    )
-    return () => {
-      clearTimeout(timer)
-      document.removeEventListener('mousedown', handler)
-    }
-  }, [isEditing, cardId, title, content, updateCard, setEditingCard])
+  }, [isEditing, cardId, updateCard])
 
   const debouncedSave = useCallback(
     (t: string, c: string) => {
@@ -128,11 +128,32 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight }: Prop
     debouncedSave(title, md)
   }
 
-  const closeEditing = () => {
+  const autoFitAndClose = useCallback(() => {
     clearTimeout(saveTimer.current)
     updateCard(cardId, { title, content })
     setEditingCard(null)
+  }, [cardId, title, content, updateCard, setEditingCard])
+
+  const closeEditing = () => {
+    autoFitAndClose()
   }
+
+  useEffect(() => {
+    if (!isEditing) return
+    const handler = (e: MouseEvent) => {
+      if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
+        autoFitAndClose()
+      }
+    }
+    const timer = setTimeout(
+      () => document.addEventListener('mousedown', handler),
+      80,
+    )
+    return () => {
+      clearTimeout(timer)
+      document.removeEventListener('mousedown', handler)
+    }
+  }, [isEditing, autoFitAndClose])
 
   const handleDragStart = useCallback(
     (e: React.MouseEvent) => {
@@ -249,7 +270,7 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight }: Prop
         left: card.x,
         top: card.y,
         width: card.width,
-        ...(card.height ? { height: card.height } : {}),
+        ...(card.height && !isEditing ? { height: card.height } : {}),
       }}
       onDoubleClick={handleDoubleClick}
     >
