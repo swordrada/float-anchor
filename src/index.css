@@ -959,21 +959,21 @@ input {
 }
 
 .section-color-dot {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
 .section-name {
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 600;
-  color: var(--text-secondary);
+  color: var(--text-primary);
   cursor: default;
 }
 
 .section-name-input {
-  font-size: 13px;
+  font-size: 16px;
   font-weight: 600;
   border: none;
   outline: none;
@@ -1280,6 +1280,14 @@ input {
 .conn-line.active {
   stroke: var(--accent);
   stroke-width: 2;
+}
+
+.conn-line.conn-preview {
+  stroke: var(--accent);
+  stroke-width: 1.5;
+  stroke-dasharray: 6 4;
+  opacity: 0.7;
+  pointer-events: none;
 }
 
 .conn-delete-btn {

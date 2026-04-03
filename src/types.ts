@@ -25,6 +25,7 @@ export interface Section {
   width: number
   height: number
   color: string
+  cardIds?: string[]
 }
 
 export interface Connection {

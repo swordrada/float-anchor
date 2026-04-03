@@ -43,7 +43,7 @@ interface AppState {
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined
 
-const SECTION_COLORS = ['#a78bfa', '#60a5fa', '#34d399', '#fb923c', '#f472b6']
+const SECTION_COLORS = ['#9ca3af', '#60a5fa', '#34d399', '#fb923c', '#f472b6']
 
 export const useStore = create<AppState>((set, get) => ({
   canvases: [],
@@ -220,14 +220,39 @@ export const useStore = create<AppState>((set, get) => ({
 
     if (self.x === bestX && self.y === bestY) return
 
+    const movedCard = { ...self, x: bestX, y: bestY }
+    const sections = canvas.sections ?? []
+    let updatedSections = sections
+
+    if (sections.length > 0) {
+      const isFullyInside = (card: Card, sec: Section) =>
+        card.x >= sec.x && card.y >= sec.y + 32 &&
+        card.x + card.width <= sec.x + sec.width &&
+        card.y + (card.height ?? 200) <= sec.y + sec.height
+
+      updatedSections = sections.map((sec) => {
+        const members = sec.cardIds ?? []
+        const inside = isFullyInside(movedCard, sec)
+        const wasMember = members.includes(cardId)
+        if (inside && !wasMember) {
+          return { ...sec, cardIds: [...members, cardId] }
+        }
+        if (!inside && wasMember) {
+          return { ...sec, cardIds: members.filter((id) => id !== cardId) }
+        }
+        return sec
+      })
+    }
+
     set((s) => ({
       canvases: s.canvases.map((c) =>
         c.id === activeCanvasId
           ? {
               ...c,
               cards: c.cards.map((card) =>
-                card.id === cardId ? { ...card, x: bestX, y: bestY } : card,
+                card.id === cardId ? movedCard : card,
               ),
+              sections: updatedSections,
             }
           : c,
       ),
@@ -320,7 +345,7 @@ export const useStore = create<AppState>((set, get) => ({
     const canvas = get().canvases.find((c) => c.id === activeCanvasId)
     const existingCount = canvas?.sections?.length ?? 0
     const color = SECTION_COLORS[existingCount % SECTION_COLORS.length]
-    const section: Section = { id: uuid(), name: '分区', x, y, width: 600, height: 400, color }
+    const section: Section = { id: uuid(), name: '分区', x, y, width: 600, height: 400, color, cardIds: [] }
     set((s) => ({
       canvases: s.canvases.map((c) =>
         c.id === activeCanvasId
@@ -365,20 +390,7 @@ export const useStore = create<AppState>((set, get) => ({
     const section = (canvas.sections ?? []).find((s) => s.id === sectionId)
     if (!section) return
 
-    const containedCardIds: string[] = []
-    const containedLabelIds: string[] = []
-    for (const card of canvas.cards) {
-      const cx = card.x + card.width / 2
-      const cy = card.y + (card.height ?? 200) / 2
-      if (cx >= section.x && cx <= section.x + section.width && cy >= section.y && cy <= section.y + section.height)
-        containedCardIds.push(card.id)
-    }
-    for (const label of canvas.labels ?? []) {
-      const cx = label.x + label.width / 2
-      const cy = label.y + 20
-      if (cx >= section.x && cx <= section.x + section.width && cy >= section.y && cy <= section.y + section.height)
-        containedLabelIds.push(label.id)
-    }
+    const memberCardIds = new Set(section.cardIds ?? [])
 
     set((s) => ({
       canvases: s.canvases.map((c) =>
@@ -386,8 +398,7 @@ export const useStore = create<AppState>((set, get) => ({
           ? {
               ...c,
               sections: (c.sections ?? []).map((sec) => sec.id === sectionId ? { ...sec, x: sec.x + dx, y: sec.y + dy } : sec),
-              cards: c.cards.map((card) => containedCardIds.includes(card.id) ? { ...card, x: card.x + dx, y: card.y + dy } : card),
-              labels: (c.labels ?? []).map((l) => containedLabelIds.includes(l.id) ? { ...l, x: l.x + dx, y: l.y + dy } : l),
+              cards: c.cards.map((card) => memberCardIds.has(card.id) ? { ...card, x: card.x + dx, y: card.y + dy } : card),
             }
           : c,
       ),
@@ -402,26 +413,23 @@ export const useStore = create<AppState>((set, get) => ({
     if (!canvas) return
     const section = (canvas.sections ?? []).find((s) => s.id === sectionId)
     if (!section) return
+    const memberIds = new Set(section.cardIds ?? [])
+    if (memberIds.size === 0) return
 
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-    let hasContent = false
     for (const card of canvas.cards) {
-      const cx = card.x + card.width / 2
-      const cy = card.y + (card.height ?? 200) / 2
-      if (cx >= section.x && cx <= section.x + section.width && cy >= section.y && cy <= section.y + section.height) {
-        minX = Math.min(minX, card.x)
-        minY = Math.min(minY, card.y)
-        maxX = Math.max(maxX, card.x + card.width)
-        maxY = Math.max(maxY, card.y + (card.height ?? 200))
-        hasContent = true
-      }
+      if (!memberIds.has(card.id)) continue
+      minX = Math.min(minX, card.x)
+      minY = Math.min(minY, card.y)
+      maxX = Math.max(maxX, card.x + card.width)
+      maxY = Math.max(maxY, card.y + (card.height ?? 200))
     }
-    if (!hasContent) return
+    if (minX === Infinity) return
     const pad = 24
     set((s) => ({
       canvases: s.canvases.map((c) =>
         c.id === activeCanvasId
-          ? { ...c, sections: (c.sections ?? []).map((sec) => sec.id === sectionId ? { ...sec, x: minX - pad, y: minY - pad - 28, width: maxX - minX + pad * 2, height: maxY - minY + pad * 2 + 28 } : sec) }
+          ? { ...c, sections: (c.sections ?? []).map((sec) => sec.id === sectionId ? { ...sec, x: minX - pad, y: minY - pad - 36, width: maxX - minX + pad * 2, height: maxY - minY + pad * 2 + 36 } : sec) }
           : c,
       ),
     }))

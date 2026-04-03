@@ -7,10 +7,18 @@ interface Props {
   scale: number
 }
 
+const SECTION_PAD = 24
+const HEADER_H = 36
+
 const SectionBox = React.memo(function SectionBox({ section, scale }: Props) {
   const updateSection = useStore((s) => s.updateSection)
   const deleteSection = useStore((s) => s.deleteSection)
   const moveSection = useStore((s) => s.moveSection)
+  const getCanvasCards = () => {
+    const s = useStore.getState()
+    const c = s.canvases.find((cv) => cv.id === s.activeCanvasId)
+    return c?.cards ?? []
+  }
 
   const [isDragging, setIsDragging] = useState(false)
   const [isResizing, setIsResizing] = useState(false)
@@ -55,23 +63,12 @@ const SectionBox = React.memo(function SectionBox({ section, scale }: Props) {
     e.stopPropagation()
     e.preventDefault()
     setIsDragging(true)
-    const sx = e.clientX
-    const sy = e.clientY
     const s = scale
+    let prevX = e.clientX
+    let prevY = e.clientY
     let raf = 0
-    const onMove = (ev: MouseEvent) => {
-      cancelAnimationFrame(raf)
-      raf = requestAnimationFrame(() => {
-        const dx = (ev.clientX - sx) / s
-        const dy = (ev.clientY - sy) / s
-        moveSection(section.id, dx, dy)
-        ;(sx as any) !== undefined
-      })
-    }
 
-    let prevX = sx
-    let prevY = sy
-    const onMoveActual = (ev: MouseEvent) => {
+    const onMove = (ev: MouseEvent) => {
       cancelAnimationFrame(raf)
       const curX = ev.clientX
       const curY = ev.clientY
@@ -85,11 +82,10 @@ const SectionBox = React.memo(function SectionBox({ section, scale }: Props) {
     const onUp = () => {
       cancelAnimationFrame(raf)
       setIsDragging(false)
-      document.removeEventListener('mousemove', onMoveActual)
+      document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
     }
-    document.removeEventListener('mousemove', onMove)
-    document.addEventListener('mousemove', onMoveActual)
+    document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
   }, [isEditing, section.id, scale, moveSection])
 
@@ -107,8 +103,19 @@ const SectionBox = React.memo(function SectionBox({ section, scale }: Props) {
     const onMove = (ev: MouseEvent) => {
       cancelAnimationFrame(raf)
       raf = requestAnimationFrame(() => {
-        const nw = Math.max(200, ow + (ev.clientX - sx) / s)
-        const nh = Math.max(120, oh + (ev.clientY - sy) / s)
+        const memberIds = new Set(section.cardIds ?? [])
+        const cards = getCanvasCards()
+        let minW = 200
+        let minH = 120
+        for (const card of cards) {
+          if (!memberIds.has(card.id)) continue
+          const rightEdge = (card.x + card.width) - section.x + SECTION_PAD
+          const bottomEdge = (card.y + (card.height ?? 200)) - section.y + SECTION_PAD
+          minW = Math.max(minW, rightEdge)
+          minH = Math.max(minH, bottomEdge)
+        }
+        const nw = Math.max(minW, ow + (ev.clientX - sx) / s)
+        const nh = Math.max(minH, oh + (ev.clientY - sy) / s)
         updateSection(section.id, { width: nw, height: nh })
       })
     }
@@ -120,10 +127,10 @@ const SectionBox = React.memo(function SectionBox({ section, scale }: Props) {
     }
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
-  }, [section.id, section.width, section.height, scale, updateSection])
+  }, [section.id, section.width, section.height, section.cardIds, section.x, section.y, scale, updateSection])
 
-  const borderColor = section.color + '55'
-  const bgColor = section.color + '0A'
+  const borderColor = section.color + '80'
+  const bgColor = section.color + '18'
 
   return (
     <div

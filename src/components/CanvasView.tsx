@@ -99,6 +99,7 @@ export default function CanvasView() {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
   const [moveModalCardId, setMoveModalCardId] = useState<string | null>(null)
   const [connectingFrom, setConnectingFrom] = useState<string | null>(null)
+  const [connectingMouse, setConnectingMouse] = useState<{ x: number; y: number } | null>(null)
   const [hoveredConn, setHoveredConn] = useState<string | null>(null)
 
   useEffect(() => {
@@ -216,6 +217,31 @@ export default function CanvasView() {
       y: (clientY - rect.top - pan.current.y) / scaleVal.current,
     }
   }, [])
+
+  useEffect(() => {
+    if (!connectingFrom) {
+      setConnectingMouse(null)
+      return
+    }
+    const onMove = (e: MouseEvent) => {
+      const coords = toCanvasCoords(e.clientX, e.clientY)
+      setConnectingMouse(coords)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setConnectingFrom(null)
+      if (e.key === 'Backspace') {
+        const last = connections[connections.length - 1]
+        if (last) deleteConnection(last.id)
+        setConnectingFrom(null)
+      }
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [connectingFrom, connections, deleteConnection, toCanvasCoords])
 
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -468,13 +494,6 @@ export default function CanvasView() {
         <h2 className="canvas-toolbar-title">{meta.name}</h2>
         <div className="toolbar-right">
           <span ref={zoomRef} className="zoom-indicator">100%</span>
-          <button className="toolbar-add-btn" onClick={handleAddCard}>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            <span>添加卡片</span>
-          </button>
         </div>
       </div>
 
@@ -507,6 +526,23 @@ export default function CanvasView() {
                 <polygon points="0 0, 10 3.5, 0 7" fill="var(--accent)" />
               </marker>
             </defs>
+            {connectingFrom && connectingMouse && (() => {
+              const fromCard = cards.find((c) => c.id === connectingFrom)
+              if (!fromCard) return null
+              const fx = fromCard.x + fromCard.width
+              const fy = fromCard.y + (fromCard.height ?? 200) / 2
+              const tx = connectingMouse.x
+              const ty = connectingMouse.y
+              const cpx = Math.abs(tx - fx) * 0.4
+              const path = `M ${fx} ${fy} C ${fx + cpx} ${fy}, ${tx - cpx} ${ty}, ${tx} ${ty}`
+              return (
+                <path
+                  d={path}
+                  className="conn-line conn-preview"
+                  markerEnd="url(#arrowhead-active)"
+                />
+              )
+            })()}
             {connectionPaths.map((conn) => (
               <g key={conn.id}
                 onMouseEnter={() => setHoveredConn(conn.id)}
@@ -561,7 +597,7 @@ export default function CanvasView() {
 
         {cards.length === 0 && (
           <div className="canvas-empty-cards">
-            <p>双击空白区域添加卡片，或点击上方「添加卡片」按钮</p>
+            <p>双击空白区域创建卡片，或右键呼出菜单</p>
           </div>
         )}
 
