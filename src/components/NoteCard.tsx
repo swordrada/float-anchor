@@ -12,17 +12,15 @@ interface Props {
 
 const remarkPlugins = [remarkGfm]
 
-function FaCardLink({ targetId, ...rest }: { targetId: string } & Record<string, any>) {
+function FaCardLink({ targetId }: { targetId: string }) {
   const store = useStore.getState()
-  const allCanvases = store.canvases
   let targetTitle = '无标题卡片'
-  for (const c of allCanvases) {
+  for (const c of store.canvases) {
     const found = c.cards.find((card) => card.id === targetId)
     if (found) { targetTitle = found.title || '无标题卡片'; break }
   }
   return (
     <a
-      {...rest}
       href="#"
       className="fa-card-link"
       onClick={(e: React.MouseEvent) => {
@@ -203,14 +201,11 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight }: Prop
   )
 
   const mdComponents = useMemo<Partial<Components>>(() => ({
-    a: ({ href, ...rest }) => {
+    a: ({ href, children }) => {
       if (href?.startsWith('fa://')) {
-        const targetId = href.slice(5)
-        return (
-          <FaCardLink targetId={targetId} {...rest} />
-        )
+        return <FaCardLink targetId={href.slice(5)} />
       }
-      return <a href={href} {...rest} target="_blank" rel="noopener noreferrer" />
+      return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
     },
   }), [])
 
