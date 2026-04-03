@@ -304,10 +304,9 @@ ipcMain.handle('write-settings', async (_event, data: unknown) => {
 
 /* ===== WebDAV Sync ===== */
 
-let webdavClient: any = null
 let syncTimer: ReturnType<typeof setTimeout> | undefined
-const WEBDAV_REMOTE_DIR = '/FloatAnchor'
-const WEBDAV_REMOTE_FILE = '/FloatAnchor/float-anchor.json'
+const WEBDAV_REMOTE_DIR = 'FloatAnchor'
+const WEBDAV_REMOTE_FILE = 'FloatAnchor/float-anchor.json'
 const MAX_BACKUPS = 5
 
 function createBackup() {
@@ -337,16 +336,20 @@ async function getWebDAVClient(config: { server: string; username: string; passw
 
 async function ensureRemoteDir(client: any) {
   try {
-    if (!await client.exists(WEBDAV_REMOTE_DIR)) {
+    const exists = await client.exists(WEBDAV_REMOTE_DIR)
+    if (!exists) {
       await client.createDirectory(WEBDAV_REMOTE_DIR)
     }
-  } catch { /* may already exist */ }
+  } catch (err) {
+    console.log('ensureRemoteDir note:', err)
+  }
 }
 
 ipcMain.handle('webdav-test', async (_event, config: { server: string; username: string; password: string }) => {
   try {
     const client = await getWebDAVClient(config)
     await client.getDirectoryContents('/')
+    await ensureRemoteDir(client)
     return { success: true }
   } catch (err) {
     return { success: false, error: String(err) }

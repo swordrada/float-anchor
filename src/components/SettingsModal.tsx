@@ -42,6 +42,11 @@ export default function SettingsModal() {
       setConnected(true)
       setTestResult('ok')
       setTimeout(() => setTestResult('idle'), 2000)
+      useStore.getState().setSyncStatus('syncing')
+      window.electronAPI.webdavAutoSync(config).then((syncRes) => {
+        useStore.getState().setSyncStatus(syncRes.success ? 'success' : 'error')
+        if (syncRes.success) setTimeout(() => useStore.getState().setSyncStatus('idle'), 3000)
+      }).catch(() => useStore.getState().setSyncStatus('error'))
     } else {
       setTestResult('fail')
       setTimeout(() => setTestResult('idle'), 3000)
