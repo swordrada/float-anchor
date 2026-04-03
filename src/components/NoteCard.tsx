@@ -1,41 +1,42 @@
-import { useRef, useState, useCallback, useEffect } from 'react'
+import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { useStore } from '../store'
-import type { Card } from '../types'
+import { useCardById, useIsEditing, useCardActions } from '../store'
 import RichEditor from './RichEditor'
 
 interface Props {
-  card: Card
+  cardId: string
   scale: number
 }
 
-export default function NoteCard({ card, scale }: Props) {
-  const { moveCard, deleteCard, updateCard, editingCardId, setEditingCard } =
-    useStore()
-  const isEditing = editingCardId === card.id
+const remarkPlugins = [remarkGfm]
+
+const NoteCard = React.memo(function NoteCard({ cardId, scale }: Props) {
+  const card = useCardById(cardId)
+  const isEditing = useIsEditing(cardId)
+  const { moveCard, deleteCard, updateCard, setEditingCard } = useCardActions()
 
   const [isDragging, setIsDragging] = useState(false)
   const [isResizing, setIsResizing] = useState(false)
-  const [title, setTitle] = useState(card.title)
-  const [content, setContent] = useState(card.content)
+  const [title, setTitle] = useState(card?.title ?? '')
+  const [content, setContent] = useState(card?.content ?? '')
   const cardRef = useRef<HTMLDivElement>(null)
   const titleRef = useRef<HTMLInputElement>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout>>()
 
   useEffect(() => {
-    if (!isEditing) {
+    if (!isEditing && card) {
       setTitle(card.title)
       setContent(card.content)
     }
-  }, [card.title, card.content, isEditing])
+  }, [card?.title, card?.content, isEditing])
 
   useEffect(() => {
     if (!isEditing) return
     requestAnimationFrame(() => {
       if (titleRef.current) {
         titleRef.current.focus()
-        if (card.title === '新卡片') titleRef.current.select()
+        if (card?.title === '新卡片') titleRef.current.select()
       }
     })
   }, [isEditing])
@@ -44,7 +45,7 @@ export default function NoteCard({ card, scale }: Props) {
     if (!isEditing) return
     const handler = (e: MouseEvent) => {
       if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
-        updateCard(card.id, { title, content })
+        updateCard(cardId, { title, content })
         setEditingCard(null)
       }
     }
@@ -56,17 +57,17 @@ export default function NoteCard({ card, scale }: Props) {
       clearTimeout(timer)
       document.removeEventListener('mousedown', handler)
     }
-  }, [isEditing, card.id, title, content, updateCard, setEditingCard])
+  }, [isEditing, cardId, title, content, updateCard, setEditingCard])
 
   const debouncedSave = useCallback(
     (t: string, c: string) => {
       clearTimeout(saveTimer.current)
       saveTimer.current = setTimeout(
-        () => updateCard(card.id, { title: t, content: c }),
+        () => updateCard(cardId, { title: t, content: c }),
         500,
       )
     },
-    [card.id, updateCard],
+    [cardId, updateCard],
   )
 
   useEffect(() => () => clearTimeout(saveTimer.current), [])
@@ -83,26 +84,23 @@ export default function NoteCard({ card, scale }: Props) {
 
   const closeEditing = () => {
     clearTimeout(saveTimer.current)
-    updateCard(card.id, { title, content })
+    updateCard(cardId, { title, content })
     setEditingCard(null)
   }
 
   const handleDragStart = useCallback(
     (e: React.MouseEvent) => {
-      if (e.button !== 0) return
+      if (e.button !== 0 || !card) return
       e.stopPropagation()
       e.preventDefault()
       setIsDragging(true)
-      const sx = e.clientX,
-        sy = e.clientY
-      const ox = card.x,
-        oy = card.y
+      const sx = e.clientX
+      const sy = e.clientY
+      const ox = card.x
+      const oy = card.y
+      const s = scale
       const onMove = (ev: MouseEvent) =>
-        moveCard(
-          card.id,
-          ox + (ev.clientX - sx) / scale,
-          oy + (ev.clientY - sy) / scale,
-        )
+        moveCard(cardId, ox + (ev.clientX - sx) / s, oy + (ev.clientY - sy) / s)
       const onUp = () => {
         setIsDragging(false)
         document.removeEventListener('mousemove', onMove)
@@ -111,43 +109,44 @@ export default function NoteCard({ card, scale }: Props) {
       document.addEventListener('mousemove', onMove)
       document.addEventListener('mouseup', onUp)
     },
-    [card.id, card.x, card.y, scale, moveCard],
+    [cardId, card?.x, card?.y, scale, moveCard],
   )
 
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation()
-      if (!isEditing) setEditingCard(card.id)
+      if (!isEditing) setEditingCard(cardId)
     },
-    [card.id, isEditing, setEditingCard],
+    [cardId, isEditing, setEditingCard],
   )
 
   const handleEdit = (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (!isEditing) setEditingCard(card.id)
+    if (!isEditing) setEditingCard(cardId)
   }
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation()
-    deleteCard(card.id)
+    deleteCard(cardId)
   }
 
   const handleResizeStart = useCallback(
     (e: React.MouseEvent) => {
-      if (e.button !== 0) return
+      if (e.button !== 0 || !card) return
       e.stopPropagation()
       e.preventDefault()
       setIsResizing(true)
-      const sx = e.clientX,
-        sy = e.clientY
+      const sx = e.clientX
+      const sy = e.clientY
       const ow = card.width
       const oh =
         card.height ??
         (cardRef.current ? cardRef.current.getBoundingClientRect().height / scale : 200)
+      const s = scale
       const onMove = (ev: MouseEvent) => {
-        const nw = Math.max(200, ow + (ev.clientX - sx) / scale)
-        const nh = Math.max(100, oh + (ev.clientY - sy) / scale)
-        updateCard(card.id, { width: nw, height: nh })
+        const nw = Math.max(200, ow + (ev.clientX - sx) / s)
+        const nh = Math.max(100, oh + (ev.clientY - sy) / s)
+        updateCard(cardId, { width: nw, height: nh })
       }
       const onUp = () => {
         setIsResizing(false)
@@ -157,8 +156,19 @@ export default function NoteCard({ card, scale }: Props) {
       document.addEventListener('mousemove', onMove)
       document.addEventListener('mouseup', onUp)
     },
-    [card.id, card.width, card.height, scale, updateCard],
+    [cardId, card?.width, card?.height, scale, updateCard],
   )
+
+  const renderedContent = useMemo(() => {
+    if (!card?.content) return null
+    return (
+      <ReactMarkdown remarkPlugins={remarkPlugins}>
+        {card.content}
+      </ReactMarkdown>
+    )
+  }, [card?.content])
+
+  if (!card) return null
 
   return (
     <div
@@ -232,9 +242,7 @@ export default function NoteCard({ card, scale }: Props) {
           </div>
           {card.content ? (
             <div className="card-content markdown-body">
-              <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                {card.content}
-              </ReactMarkdown>
+              {renderedContent}
             </div>
           ) : (
             <div className="card-placeholder">双击编辑内容...</div>
@@ -251,4 +259,6 @@ export default function NoteCard({ card, scale }: Props) {
       </div>
     </div>
   )
-}
+})
+
+export default NoteCard

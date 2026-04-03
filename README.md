@@ -44,9 +44,9 @@
 
 | 文件 | 平台 | 适用设备 |
 |------|------|----------|
-| `FloatAnchor-1.0.0-mac-arm64.dmg` | macOS | Apple Silicon (M1/M2/M3/M4) |
-| `FloatAnchor-1.0.0-mac-x64.dmg` | macOS | Intel Mac |
-| `FloatAnchor-1.0.0-win-setup.exe` | Windows | 64 位 Windows |
+| `FloatAnchor-1.0.1-mac-arm64.dmg` | macOS | Apple Silicon (M1/M2/M3/M4) |
+| `FloatAnchor-1.0.1-mac-x64.dmg` | macOS | Intel Mac |
+| `FloatAnchor-1.0.1-win-setup.exe` | Windows | 64 位 Windows |
 
 ### macOS 安装
 
@@ -73,7 +73,7 @@
 
 - **创建卡片** — 在画布空白处 **双击** 即可在点击位置创建新卡片，或点击右上角的 **新建卡片** 按钮
 - **编辑卡片** — **双击** 卡片进入编辑模式，或 hover 卡片顶部灰色条时点击铅笔图标
-- **移动卡片** — hover 卡片顶部出现灰色拖拽条，按住拖动到任意位置
+- **移动卡片** — hover 卡片顶部出现灰色拖拽条，按住拖动到任意位置；靠近其他卡片时自动磁吸对齐，保持统一间距
 - **缩放卡片** — hover 卡片右下角出现缩放手柄（↗↙ 箭头光标），拖拽调整大小
 - **删除卡片** — hover 卡片顶部灰色条时，点击右侧垃圾桶图标
 - **退出编辑** — 点击卡片外部区域，或按 `Esc` 键

@@ -1,7 +1,7 @@
 {
   "name": "float-anchor",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "FloatAnchor - 白板卡片笔记应用",
   "author": "FloatAnchor",
   "main": "dist-electron/main.js",

@@ -1,13 +1,15 @@
-import { useRef, useState, useCallback, useEffect } from 'react'
-import { useStore } from '../store'
+import { useRef, useState, useCallback, useEffect, useMemo } from 'react'
+import { useStore, useActiveCanvasMeta, useActiveCards } from '../store'
 import NoteCard from './NoteCard'
 
 const MIN_SCALE = 0.15
 const MAX_SCALE = 3
+const VIEWPORT_PADDING = 200
 
 export default function CanvasView() {
-  const { getActiveCanvas, addCard } = useStore()
-  const canvas = getActiveCanvas()
+  const addCard = useStore((s) => s.addCard)
+  const meta = useActiveCanvasMeta()
+  const cards = useActiveCards()
 
   const viewportRef = useRef<HTMLDivElement>(null)
   const [pan, setPan] = useState({ x: 0, y: 0 })
@@ -25,9 +27,8 @@ export default function CanvasView() {
   useEffect(() => {
     setPan({ x: 0, y: 0 })
     setScale(1)
-  }, [canvas?.id])
+  }, [meta?.id])
 
-  // Wheel: two-finger swipe → pan,  pinch / Ctrl+wheel → zoom
   useEffect(() => {
     const vp = viewportRef.current
     if (!vp) return
@@ -60,7 +61,6 @@ export default function CanvasView() {
     return () => vp.removeEventListener('wheel', onWheel)
   }, [])
 
-  // Right-click drag → pan (Windows mouse / any platform)
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button === 2) {
       e.preventDefault()
@@ -89,7 +89,6 @@ export default function CanvasView() {
     e.preventDefault()
   }, [])
 
-  // Double-click empty area → create card at that position
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement
@@ -114,7 +113,33 @@ export default function CanvasView() {
     addCard(cx + jitter(), cy + jitter())
   }
 
-  if (!canvas) {
+  const vpRect = viewportRef.current?.getBoundingClientRect()
+  const vpW = vpRect?.width ?? 1400
+  const vpH = vpRect?.height ?? 900
+
+  const visibleCardIds = useMemo(() => {
+    const viewLeft = (-pan.x) / scale - VIEWPORT_PADDING
+    const viewTop = (-pan.y) / scale - VIEWPORT_PADDING
+    const viewRight = (vpW - pan.x) / scale + VIEWPORT_PADDING
+    const viewBottom = (vpH - pan.y) / scale + VIEWPORT_PADDING
+
+    const ids = new Set<string>()
+    for (const card of cards) {
+      const cardRight = card.x + card.width
+      const cardBottom = card.y + (card.height ?? 300)
+      if (
+        card.x < viewRight &&
+        cardRight > viewLeft &&
+        card.y < viewBottom &&
+        cardBottom > viewTop
+      ) {
+        ids.add(card.id)
+      }
+    }
+    return ids
+  }, [cards, pan.x, pan.y, scale, vpW, vpH])
+
+  if (!meta) {
     return (
       <main className="canvas-empty-state">
         <div className="empty-hint">
@@ -132,7 +157,7 @@ export default function CanvasView() {
   return (
     <main className="canvas-main">
       <div className="canvas-toolbar">
-        <h2 className="canvas-toolbar-title">{canvas.name}</h2>
+        <h2 className="canvas-toolbar-title">{meta.name}</h2>
         <div className="toolbar-right">
           <span className="zoom-indicator">{Math.round(scale * 100)}%</span>
           <button className="toolbar-add-btn" onClick={handleAddCard}>
@@ -162,12 +187,26 @@ export default function CanvasView() {
             transformOrigin: '0 0',
           }}
         >
-          {canvas.cards.map((card) => (
-            <NoteCard key={card.id} card={card} scale={scale} />
-          ))}
+          {cards.map((card) =>
+            visibleCardIds.has(card.id) ? (
+              <NoteCard key={card.id} cardId={card.id} scale={scale} />
+            ) : (
+              <div
+                key={card.id}
+                className="note-card-placeholder"
+                style={{
+                  position: 'absolute',
+                  left: card.x,
+                  top: card.y,
+                  width: card.width,
+                  height: card.height ?? 60,
+                }}
+              />
+            ),
+          )}
         </div>
 
-        {canvas.cards.length === 0 && (
+        {cards.length === 0 && (
           <div className="canvas-empty-cards">
             <p>双击空白区域添加卡片，或点击上方「添加卡片」按钮</p>
           </div>

@@ -1,15 +1,23 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useMemo } from 'react'
 import { useStore } from '../store'
+import { shallow } from 'zustand/shallow'
 
 export default function Sidebar() {
-  const {
-    canvases,
-    activeCanvasId,
-    setActiveCanvas,
-    addCanvas,
-    deleteCanvas,
-    renameCanvas,
-  } = useStore()
+  const { activeCanvasId, setActiveCanvas, addCanvas, deleteCanvas, renameCanvas } =
+    useStore(
+      (s) => ({
+        activeCanvasId: s.activeCanvasId,
+        setActiveCanvas: s.setActiveCanvas,
+        addCanvas: s.addCanvas,
+        deleteCanvas: s.deleteCanvas,
+        renameCanvas: s.renameCanvas,
+      }),
+      shallow,
+    )
+  const canvases = useStore((s) =>
+    s.canvases.map((c) => ({ id: c.id, name: c.name, cardCount: c.cards.length })),
+    shallow,
+  )
 
   const [isAdding, setIsAdding] = useState(false)
   const [newName, setNewName] = useState('')
@@ -101,7 +109,7 @@ export default function Sidebar() {
                   <line x1="7" y1="12" x2="13" y2="12" />
                 </svg>
                 <span className="canvas-name">{c.name}</span>
-                <span className="canvas-count">{c.cards.length}</span>
+                <span className="canvas-count">{c.cardCount}</span>
                 <button
                   className="canvas-edit"
                   onClick={(e) => {

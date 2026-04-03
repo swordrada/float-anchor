@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { shallow } from 'zustand/shallow'
 import { v4 as uuid } from 'uuid'
 import type { Canvas, Card } from './types'
 
@@ -21,8 +22,6 @@ interface AppState {
   deleteCard: (cardId: string) => void
   moveCard: (cardId: string, x: number, y: number) => void
   setEditingCard: (cardId: string | null) => void
-
-  getActiveCanvas: () => Canvas | undefined
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined
@@ -158,13 +157,58 @@ export const useStore = create<AppState>((set, get) => ({
   moveCard: (cardId, x, y) => {
     const { activeCanvasId } = get()
     if (!activeCanvasId) return
+    const canvas = get().canvases.find((c) => c.id === activeCanvasId)
+    if (!canvas) return
+    const self = canvas.cards.find((c) => c.id === cardId)
+    if (!self) return
+
+    const SNAP_DIST = 18
+    const GAP = 14
+    const selfW = self.width
+    const selfH = self.height ?? 300
+
+    let sx = x
+    let sy = y
+    let snappedX = false
+    let snappedY = false
+
+    for (const other of canvas.cards) {
+      if (other.id === cardId) continue
+      const ow = other.width
+      const oh = other.height ?? 300
+
+      if (!snappedX) {
+        const dLeftRight = x - (other.x + ow + GAP)
+        if (Math.abs(dLeftRight) < SNAP_DIST) { sx = other.x + ow + GAP; snappedX = true }
+        const dRightLeft = (x + selfW) - (other.x - GAP)
+        if (Math.abs(dRightLeft) < SNAP_DIST) { sx = other.x - GAP - selfW; snappedX = true }
+        const dLeftLeft = x - other.x
+        if (Math.abs(dLeftLeft) < SNAP_DIST) { sx = other.x; snappedX = true }
+        const dRightRight = (x + selfW) - (other.x + ow)
+        if (Math.abs(dRightRight) < SNAP_DIST) { sx = other.x + ow - selfW; snappedX = true }
+      }
+
+      if (!snappedY) {
+        const dTopBottom = y - (other.y + oh + GAP)
+        if (Math.abs(dTopBottom) < SNAP_DIST) { sy = other.y + oh + GAP; snappedY = true }
+        const dBottomTop = (y + selfH) - (other.y - GAP)
+        if (Math.abs(dBottomTop) < SNAP_DIST) { sy = other.y - GAP - selfH; snappedY = true }
+        const dTopTop = y - other.y
+        if (Math.abs(dTopTop) < SNAP_DIST) { sy = other.y; snappedY = true }
+        const dBottomBottom = (y + selfH) - (other.y + oh)
+        if (Math.abs(dBottomBottom) < SNAP_DIST) { sy = other.y + oh - selfH; snappedY = true }
+      }
+
+      if (snappedX && snappedY) break
+    }
+
     set((s) => ({
       canvases: s.canvases.map((c) =>
         c.id === activeCanvasId
           ? {
               ...c,
               cards: c.cards.map((card) =>
-                card.id === cardId ? { ...card, x, y } : card,
+                card.id === cardId ? { ...card, x: sx, y: sy } : card,
               ),
             }
           : c,
@@ -174,9 +218,53 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setEditingCard: (cardId) => set({ editingCardId: cardId }),
-
-  getActiveCanvas: () => {
-    const { canvases, activeCanvasId } = get()
-    return canvases.find((c) => c.id === activeCanvasId)
-  },
 }))
+
+export function useActiveCanvas() {
+  return useStore((s) => {
+    const c = s.canvases.find((c) => c.id === s.activeCanvasId)
+    return c ?? null
+  })
+}
+
+export function useActiveCanvasMeta() {
+  return useStore(
+    (s) => {
+      const c = s.canvases.find((c) => c.id === s.activeCanvasId)
+      return c ? { id: c.id, name: c.name, cardCount: c.cards.length } : null
+    },
+    shallow,
+  )
+}
+
+export function useActiveCards() {
+  return useStore((s) => {
+    const c = s.canvases.find((c) => c.id === s.activeCanvasId)
+    return c?.cards ?? []
+  })
+}
+
+export function useCardById(cardId: string) {
+  return useStore(
+    (s) => {
+      const c = s.canvases.find((c) => c.id === s.activeCanvasId)
+      return c?.cards.find((card) => card.id === cardId)
+    },
+  )
+}
+
+export function useIsEditing(cardId: string) {
+  return useStore((s) => s.editingCardId === cardId)
+}
+
+export function useCardActions() {
+  return useStore(
+    (s) => ({
+      moveCard: s.moveCard,
+      deleteCard: s.deleteCard,
+      updateCard: s.updateCard,
+      setEditingCard: s.setEditingCard,
+    }),
+    shallow,
+  )
+}

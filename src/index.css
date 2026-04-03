@@ -395,6 +395,7 @@ input {
   width: 1px;
   height: 1px;
   will-change: transform;
+  contain: layout style;
 }
 
 .canvas-empty-state {
@@ -438,14 +439,18 @@ input {
   box-shadow: var(--shadow-sm);
   border: 1.5px solid transparent;
   cursor: default;
-  transition: box-shadow 0.2s, border-color 0.2s;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  contain: layout style paint;
 }
 
 .note-card:hover {
   box-shadow: var(--shadow-md);
+}
+
+.note-card-placeholder {
+  pointer-events: none;
 }
 
 .note-card.dragging {
