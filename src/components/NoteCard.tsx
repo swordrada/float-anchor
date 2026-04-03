@@ -1,0 +1,254 @@
+import { useRef, useState, useCallback, useEffect } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { useStore } from '../store'
+import type { Card } from '../types'
+import RichEditor from './RichEditor'
+
+interface Props {
+  card: Card
+  scale: number
+}
+
+export default function NoteCard({ card, scale }: Props) {
+  const { moveCard, deleteCard, updateCard, editingCardId, setEditingCard } =
+    useStore()
+  const isEditing = editingCardId === card.id
+
+  const [isDragging, setIsDragging] = useState(false)
+  const [isResizing, setIsResizing] = useState(false)
+  const [title, setTitle] = useState(card.title)
+  const [content, setContent] = useState(card.content)
+  const cardRef = useRef<HTMLDivElement>(null)
+  const titleRef = useRef<HTMLInputElement>(null)
+  const saveTimer = useRef<ReturnType<typeof setTimeout>>()
+
+  useEffect(() => {
+    if (!isEditing) {
+      setTitle(card.title)
+      setContent(card.content)
+    }
+  }, [card.title, card.content, isEditing])
+
+  useEffect(() => {
+    if (!isEditing) return
+    requestAnimationFrame(() => {
+      if (titleRef.current) {
+        titleRef.current.focus()
+        if (card.title === '新卡片') titleRef.current.select()
+      }
+    })
+  }, [isEditing])
+
+  useEffect(() => {
+    if (!isEditing) return
+    const handler = (e: MouseEvent) => {
+      if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
+        updateCard(card.id, { title, content })
+        setEditingCard(null)
+      }
+    }
+    const timer = setTimeout(
+      () => document.addEventListener('mousedown', handler),
+      80,
+    )
+    return () => {
+      clearTimeout(timer)
+      document.removeEventListener('mousedown', handler)
+    }
+  }, [isEditing, card.id, title, content, updateCard, setEditingCard])
+
+  const debouncedSave = useCallback(
+    (t: string, c: string) => {
+      clearTimeout(saveTimer.current)
+      saveTimer.current = setTimeout(
+        () => updateCard(card.id, { title: t, content: c }),
+        500,
+      )
+    },
+    [card.id, updateCard],
+  )
+
+  useEffect(() => () => clearTimeout(saveTimer.current), [])
+
+  const onTitleChange = (v: string) => {
+    setTitle(v)
+    debouncedSave(v, content)
+  }
+
+  const onContentChange = (md: string) => {
+    setContent(md)
+    debouncedSave(title, md)
+  }
+
+  const closeEditing = () => {
+    clearTimeout(saveTimer.current)
+    updateCard(card.id, { title, content })
+    setEditingCard(null)
+  }
+
+  const handleDragStart = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.button !== 0) return
+      e.stopPropagation()
+      e.preventDefault()
+      setIsDragging(true)
+      const sx = e.clientX,
+        sy = e.clientY
+      const ox = card.x,
+        oy = card.y
+      const onMove = (ev: MouseEvent) =>
+        moveCard(
+          card.id,
+          ox + (ev.clientX - sx) / scale,
+          oy + (ev.clientY - sy) / scale,
+        )
+      const onUp = () => {
+        setIsDragging(false)
+        document.removeEventListener('mousemove', onMove)
+        document.removeEventListener('mouseup', onUp)
+      }
+      document.addEventListener('mousemove', onMove)
+      document.addEventListener('mouseup', onUp)
+    },
+    [card.id, card.x, card.y, scale, moveCard],
+  )
+
+  const handleDoubleClick = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation()
+      if (!isEditing) setEditingCard(card.id)
+    },
+    [card.id, isEditing, setEditingCard],
+  )
+
+  const handleEdit = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (!isEditing) setEditingCard(card.id)
+  }
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    deleteCard(card.id)
+  }
+
+  const handleResizeStart = useCallback(
+    (e: React.MouseEvent) => {
+      if (e.button !== 0) return
+      e.stopPropagation()
+      e.preventDefault()
+      setIsResizing(true)
+      const sx = e.clientX,
+        sy = e.clientY
+      const ow = card.width
+      const oh =
+        card.height ??
+        (cardRef.current ? cardRef.current.getBoundingClientRect().height / scale : 200)
+      const onMove = (ev: MouseEvent) => {
+        const nw = Math.max(200, ow + (ev.clientX - sx) / scale)
+        const nh = Math.max(100, oh + (ev.clientY - sy) / scale)
+        updateCard(card.id, { width: nw, height: nh })
+      }
+      const onUp = () => {
+        setIsResizing(false)
+        document.removeEventListener('mousemove', onMove)
+        document.removeEventListener('mouseup', onUp)
+      }
+      document.addEventListener('mousemove', onMove)
+      document.addEventListener('mouseup', onUp)
+    },
+    [card.id, card.width, card.height, scale, updateCard],
+  )
+
+  return (
+    <div
+      ref={cardRef}
+      className={`note-card ${isDragging ? 'dragging' : ''} ${isResizing ? 'resizing' : ''} ${isEditing ? 'editing' : ''}`}
+      style={{
+        left: card.x,
+        top: card.y,
+        width: card.width,
+        ...(card.height ? { height: card.height } : {}),
+      }}
+      onDoubleClick={handleDoubleClick}
+    >
+      <div className="card-drag-handle" onMouseDown={handleDragStart}>
+        <div className="drag-grip">
+          <span />
+          <span />
+          <span />
+          <span />
+          <span />
+          <span />
+        </div>
+        <div className="card-banner-actions">
+          {!isEditing && (
+            <button
+              className="card-banner-btn card-edit-btn"
+              title="编辑"
+              onMouseDown={(e) => e.stopPropagation()}
+              onClick={handleEdit}
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+              </svg>
+            </button>
+          )}
+          <button
+            className="card-banner-btn card-delete-btn"
+            title="删除"
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={handleDelete}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <polyline points="3 6 5 6 21 6" />
+              <path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {isEditing ? (
+        <div
+          className="card-edit-mode"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') closeEditing()
+          }}
+        >
+          <input
+            ref={titleRef}
+            className="card-edit-title"
+            value={title}
+            onChange={(e) => onTitleChange(e.target.value)}
+            placeholder="输入标题..."
+            spellCheck={false}
+          />
+          <RichEditor content={content} onChange={onContentChange} />
+        </div>
+      ) : (
+        <>
+          <div className="card-header">
+            <h3 className="card-title">{card.title || '无标题'}</h3>
+          </div>
+          {card.content ? (
+            <div className="card-content markdown-body">
+              <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                {card.content}
+              </ReactMarkdown>
+            </div>
+          ) : (
+            <div className="card-placeholder">双击编辑内容...</div>
+          )}
+        </>
+      )}
+
+      <div className="card-resize-handle" onMouseDown={handleResizeStart}>
+        <svg width="10" height="10" viewBox="0 0 10 10">
+          <line x1="9" y1="1" x2="1" y2="9" stroke="#bbb" strokeWidth="1" />
+          <line x1="9" y1="4" x2="4" y2="9" stroke="#bbb" strokeWidth="1" />
+          <line x1="9" y1="7" x2="7" y2="9" stroke="#bbb" strokeWidth="1" />
+        </svg>
+      </div>
+    </div>
+  )
+}
