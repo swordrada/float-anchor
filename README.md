@@ -108,6 +108,42 @@
 - **macOS** — `~/Library/Application Support/FloatAnchor/data/`
 - **Windows** — `%APPDATA%/FloatAnchor/data/`
 
+## 从 Heptabase 迁移
+
+如果你之前使用 Heptabase，可以一键将所有白板和卡片笔记迁移到 FloatAnchor。
+
+### 步骤
+
+1. 在 Heptabase 中导出备份数据（Settings → Export → Backup）
+2. 解压导出的备份文件夹
+3. 确保已安装 Python 3，然后运行迁移脚本：
+
+```bash
+python3 scripts/migrate-heptabase.py <备份文件夹路径>
+```
+
+例如：
+
+```bash
+python3 scripts/migrate-heptabase.py ~/Downloads/heptabase-backup
+```
+
+脚本会自动将数据写入 FloatAnchor 的本地存储路径。如果需要指定输出位置，可加 `--output` 参数：
+
+```bash
+python3 scripts/migrate-heptabase.py ~/Downloads/heptabase-backup --output ./my-data.json
+```
+
+### 迁移内容
+
+| 项目 | 说明 |
+|------|------|
+| 白板（Whiteboard → Canvas） | 所有未删除的白板，保留名称 |
+| 卡片笔记 | 标题、正文（Markdown 格式）、位置坐标、卡片宽高 |
+| 卡片布局 | 保留原始 x/y 坐标，迁移后的画布布局与 Heptabase 中一致 |
+
+> **注意**：迁移前请先关闭 FloatAnchor 应用，迁移完成后再打开，否则应用可能会覆盖迁移数据。
+
 ## 技术栈
 
 Electron + React + TypeScript + Vite + TipTap + Zustand
