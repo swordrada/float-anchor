@@ -222,7 +222,7 @@ def extract_image_file_ids(card, token: str = None, images_dir: str = None) -> l
                 if token and images_dir:
                     local_path = download_heptabase_image(fid, images_dir, token)
                     if local_path:
-                        urls.append(local_path)
+                        urls.append(local_path.replace(" ", "%20"))
                     else:
                         urls.append(f"https://app.heptabase.com/api/files/{fid}")
                 else:
