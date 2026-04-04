@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, protocol, net } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import https from 'node:https'
@@ -479,7 +479,17 @@ ipcMain.on('win-close', (e) => {
   BrowserWindow.fromWebContents(e.sender)?.close()
 })
 
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'fa-image',
+  privileges: { bypassCSP: true, supportFetchAPI: true, stream: true },
+}])
+
 app.whenReady().then(() => {
+  protocol.handle('fa-image', (request) => {
+    const filePath = decodeURI(request.url.slice('fa-image://'.length))
+    return net.fetch(`file://${filePath}`)
+  })
+
   createWindow()
   startUpdateChecker()
 })

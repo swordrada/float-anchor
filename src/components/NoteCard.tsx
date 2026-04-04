@@ -16,6 +16,7 @@ const remarkPlugins = [remarkGfm]
 function faUrlTransform(url: string): string {
   if (url.startsWith('fa://') || url.startsWith('fa:')) return url
   if (url.startsWith('data:')) return url
+  if (url.startsWith('/')) return `fa-image://${url}`
   return defaultUrlTransform(url)
 }
 
