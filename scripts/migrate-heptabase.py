@@ -444,7 +444,13 @@ def _is_real_image(filepath: str) -> bool:
 def main():
     global file_metadata
     if len(sys.argv) < 2:
-        print("Usage: python3 scripts/migrate-heptabase.py <heptabase-backup-dir> [--output <path>] [--token <heptabase-token>]")
+        print("Usage: python3 scripts/migrate-heptabase.py <heptabase-backup-dir> [--output <path>] [--token <token>]")
+        print()
+        print("Options:")
+        print("  --output <path>    Specify output file path (default: FloatAnchor local storage)")
+        print("  --token <token>    Heptabase Bearer token for downloading images.")
+        print("                     Get it from browser DevTools: Network tab → any request → Authorization header.")
+        print("                     Token expires in ~1 hour. Images are saved locally for offline use.")
         sys.exit(1)
 
     backup_input = sys.argv[1]
@@ -519,7 +525,7 @@ def main():
         os.makedirs(images_dir, exist_ok=True)
         print(f"Token provided — images will be downloaded to {images_dir}")
     else:
-        print("No --token provided — internal images will use Heptabase API URLs (may require auth)")
+        print("No --token provided — images will be skipped. Use --token to download images.")
 
     print(f"Active whiteboards: {len(active_wbs)}")
 

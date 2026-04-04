@@ -129,9 +129,9 @@
 
 ## 从 Heptabase 迁移
 
-如果你之前使用 Heptabase，可以一键将所有白板和卡片笔记迁移到 FloatAnchor。
+如果你之前使用 Heptabase，可以将所有白板、卡片笔记和图片迁移到 FloatAnchor。
 
-### 步骤
+### 基本迁移
 
 1. 在 Heptabase 中导出备份数据（Settings → Export → Backup）
 2. 解压导出的备份文件夹
@@ -141,17 +141,27 @@
 python3 scripts/migrate-heptabase.py <备份文件夹路径>
 ```
 
-例如：
-
-```bash
-python3 scripts/migrate-heptabase.py ~/Downloads/heptabase-backup
-```
-
 脚本会自动将数据写入 FloatAnchor 的本地存储路径。如果需要指定输出位置，可加 `--output` 参数：
 
 ```bash
 python3 scripts/migrate-heptabase.py ~/Downloads/heptabase-backup --output ./my-data.json
 ```
+
+### 迁移图片（需要 Token）
+
+Heptabase 的备份数据不包含图片文件。如果你的卡片中包含图片，需要提供 Heptabase 的认证 Token 来下载图片：
+
+1. 在浏览器中打开 [Heptabase 网页版](https://app.heptabase.com) 并登录
+2. 按 `F12` 打开开发者工具，切换到 **Network** 面板
+3. 在 Heptabase 中随意操作（如打开一张卡片），在 Network 面板中找到任意请求
+4. 在请求的 **Headers** 中找到 `Authorization` 字段，复制 `Bearer` 后面的完整 Token
+5. 运行迁移脚本时加上 `--token` 参数：
+
+```bash
+python3 scripts/migrate-heptabase.py ~/Downloads/heptabase-backup --token '<你的Token>'
+```
+
+> **注意**：Token 有效期约 1 小时，请在获取后尽快运行脚本。图片会下载到本地，后续使用无需 Token。
 
 ### 迁移内容
 
@@ -159,7 +169,8 @@ python3 scripts/migrate-heptabase.py ~/Downloads/heptabase-backup --output ./my-
 |------|------|
 | 白板（Whiteboard → Canvas） | 所有未删除的白板，保留名称 |
 | 卡片笔记 | 标题、正文（Markdown 格式）、位置坐标、卡片宽高 |
-| 卡片布局 | 保留原始 x/y 坐标，迁移后的画布布局与 Heptabase 中一致 |
+| 图片 | 通过 `--token` 参数下载并保存到本地，支持 PNG / JPEG / GIF |
+| 卡片布局 | 保留相对位置，自动紧凑排列 |
 
 > **注意**：迁移前请先关闭 FloatAnchor 应用，迁移完成后再打开，否则应用可能会覆盖迁移数据。
 
