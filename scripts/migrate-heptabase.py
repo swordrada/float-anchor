@@ -395,28 +395,50 @@ file_metadata = {}
 
 
 def download_heptabase_image(file_id: str, dest_dir: str, token: str) -> str:
-    """Download an image from Heptabase API and return the local file path."""
+    """Download an image from Heptabase via presigned S3 URL."""
     import urllib.request
     dest_path = os.path.join(dest_dir, f"{file_id}.png")
-    if os.path.exists(dest_path):
+    if os.path.exists(dest_path) and _is_real_image(dest_path):
         return dest_path
-    url = f"https://app.heptabase.com/api/files/{file_id}"
-    req = urllib.request.Request(url, headers={
-        "Authorization": f"Bearer {token}",
-        "User-Agent": "FloatAnchor-Migrator/1.0",
-    })
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = resp.read()
-            content_type = resp.headers.get("Content-Type", "")
-            if "image" not in content_type and len(data) < 1000:
-                return ""
-            with open(dest_path, "wb") as f:
-                f.write(data)
-            return dest_path
+        body = json.dumps({"token": token, "fileId": file_id, "type": "image/png", "permissionCheckMode": "public"}).encode()
+        req = urllib.request.Request("https://api.heptabase.com/v1/file", data=body,
+                                     headers={"Content-Type": "application/json"})
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            signed_url = json.loads(resp.read().decode())["signedUrl"]
+        req2 = urllib.request.Request(signed_url)
+        with urllib.request.urlopen(req2, timeout=30) as resp2:
+            data = resp2.read()
+        if not _is_image_data(data):
+            print(f"    Warning: {file_id} returned non-image data ({len(data)} bytes)")
+            return ""
+        with open(dest_path, "wb") as f:
+            f.write(data)
+        return dest_path
     except Exception as e:
         print(f"    Warning: failed to download {file_id}: {e}")
         return ""
+
+
+def _is_image_data(data: bytes) -> bool:
+    """Check if binary data starts with a known image magic number."""
+    if len(data) < 4:
+        return False
+    return (data[:8] == b'\x89PNG\r\n\x1a\n' or
+            data[:2] == b'\xff\xd8' or
+            data[:4] == b'GIF8' or
+            data[:4] == b'RIFF' or
+            data[:4] == b'II\x2a\x00' or
+            data[:4] == b'MM\x00\x2a')
+
+
+def _is_real_image(filepath: str) -> bool:
+    """Check if a file on disk is a real image (not an HTML error page)."""
+    try:
+        with open(filepath, 'rb') as f:
+            return _is_image_data(f.read(16))
+    except Exception:
+        return False
 
 
 def main():

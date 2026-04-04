@@ -481,13 +481,18 @@ ipcMain.on('win-close', (e) => {
 
 protocol.registerSchemesAsPrivileged([{
   scheme: 'fa-image',
-  privileges: { bypassCSP: true, supportFetchAPI: true, stream: true },
+  privileges: { standard: true, secure: true, bypassCSP: true, supportFetchAPI: true, stream: true },
 }])
 
 app.whenReady().then(() => {
   protocol.handle('fa-image', (request) => {
-    const filePath = decodeURI(request.url.slice('fa-image://'.length))
-    return net.fetch(`file://${filePath}`)
+    try {
+      const url = new URL(request.url)
+      const filePath = decodeURIComponent(url.pathname)
+      return net.fetch(new URL(`file://${filePath}`).href)
+    } catch {
+      return new Response('Not found', { status: 404 })
+    }
   })
 
   createWindow()
