@@ -45,6 +45,7 @@ interface AppState {
   deleteSection: (sectionId: string) => void
   moveSection: (sectionId: string, dx: number, dy: number) => void
   autoFitSection: (sectionId: string) => void
+  compactSection: (sectionId: string) => void
 
   finalizeCardMove: (cardId: string) => void
 
@@ -570,6 +571,126 @@ export const useStore = create<AppState>((set, get) => ({
       canvases: s.canvases.map((c) =>
         c.id === activeCanvasId
           ? { ...c, sections: (c.sections ?? []).map((sec) => sec.id === sectionId ? { ...sec, x: minX - pad, y: minY - pad - 36, width: maxX - minX + pad * 2, height: maxY - minY + pad * 2 + 36 } : sec) }
+          : c,
+      ),
+    }))
+    get().persist()
+  },
+
+  compactSection: (sectionId) => {
+    const { activeCanvasId } = get()
+    if (!activeCanvasId) return
+    const canvas = get().canvases.find((c) => c.id === activeCanvasId)
+    if (!canvas) return
+    const section = (canvas.sections ?? []).find((s) => s.id === sectionId)
+    if (!section) return
+    const memberIds = section.cardIds ?? []
+    if (memberIds.length === 0) return
+
+    const GAP = 12
+    const members = canvas.cards.filter((c) => memberIds.includes(c.id))
+    const connections = canvas.connections ?? []
+
+    const connectedIds = new Set<string>()
+    for (const conn of connections) {
+      if (memberIds.includes(conn.fromCardId) && memberIds.includes(conn.toCardId)) {
+        connectedIds.add(conn.fromCardId)
+        connectedIds.add(conn.toCardId)
+      }
+    }
+
+    const freeCards = members.filter((c) => !connectedIds.has(c.id))
+
+    type Rect = { id: string; x: number; y: number; width: number; height: number }
+    const placed: Rect[] = members
+      .filter((c) => connectedIds.has(c.id))
+      .map((c) => ({ id: c.id, x: c.x, y: c.y, width: c.width, height: c.height ?? 200 }))
+
+    const cardMap = new Map(members.map((c) => [c.id, { ...c }]))
+
+    const collides = (r: Rect) =>
+      placed.some((p) => p.id !== r.id &&
+        r.x < p.x + p.width + GAP && r.x + r.width + GAP > p.x &&
+        r.y < p.y + p.height + GAP && r.y + r.height + GAP > p.y)
+
+    const centroidX = members.reduce((s, c) => s + c.x + c.width / 2, 0) / members.length
+    const centroidY = members.reduce((s, c) => s + c.y + (c.height ?? 200) / 2, 0) / members.length
+
+    const sorted = [...freeCards].sort((a, b) => {
+      const da = Math.hypot(a.x + a.width / 2 - centroidX, a.y + (a.height ?? 200) / 2 - centroidY)
+      const db = Math.hypot(b.x + b.width / 2 - centroidX, b.y + (b.height ?? 200) / 2 - centroidY)
+      return da - db
+    })
+
+    for (const fc of sorted) {
+      const selfW = fc.width
+      const selfH = fc.height ?? 200
+
+      type Candidate = { x: number; y: number; dist: number }
+      const candidates: Candidate[] = []
+
+      for (const anchor of placed) {
+        const ax = anchor.x, ay = anchor.y, aw = anchor.width, ah = anchor.height
+
+        const tryPos = (cx: number, cy: number) => {
+          candidates.push({ x: cx, y: cy, dist: Math.hypot(cx - fc.x, cy - fc.y) })
+        }
+
+        // below anchor, x-aligned
+        tryPos(ax, ay + ah + GAP)
+        // above anchor, x-aligned
+        tryPos(ax, ay - selfH - GAP)
+        // right of anchor, y-aligned
+        tryPos(ax + aw + GAP, ay)
+        // left of anchor, y-aligned
+        tryPos(ax - selfW - GAP, ay)
+      }
+
+      candidates.sort((a, b) => a.dist - b.dist)
+
+      let snapped = false
+      for (const c of candidates) {
+        const rect: Rect = { id: fc.id, x: Math.round(c.x), y: Math.round(c.y), width: selfW, height: selfH }
+        if (!collides(rect)) {
+          cardMap.set(fc.id, { ...fc, x: rect.x, y: rect.y })
+          placed.push(rect)
+          snapped = true
+          break
+        }
+      }
+      if (!snapped) {
+        placed.push({ id: fc.id, x: fc.x, y: fc.y, width: selfW, height: selfH })
+      }
+    }
+
+    const updatedCards = [...cardMap.values()]
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const c of updatedCards) {
+      minX = Math.min(minX, c.x)
+      minY = Math.min(minY, c.y)
+      maxX = Math.max(maxX, c.x + c.width)
+      maxY = Math.max(maxY, c.y + (c.height ?? 200))
+    }
+    const pad = 24
+    const newSection = {
+      ...section,
+      x: minX - pad,
+      y: minY - pad - 36,
+      width: maxX - minX + pad * 2,
+      height: maxY - minY + pad * 2 + 36,
+    }
+
+    set((s) => ({
+      canvases: s.canvases.map((c) =>
+        c.id === activeCanvasId
+          ? {
+              ...c,
+              cards: c.cards.map((card) => {
+                const updated = cardMap.get(card.id)
+                return updated ? updated : card
+              }),
+              sections: (c.sections ?? []).map((sec) => sec.id === sectionId ? newSection : sec),
+            }
           : c,
       ),
     }))

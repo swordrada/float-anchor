@@ -135,6 +135,7 @@ const SectionBox = React.memo(function SectionBox({ section, scale }: Props) {
   return (
     <div
       className={`section-box ${isDragging ? 'dragging' : ''} ${isResizing ? 'resizing' : ''}`}
+      data-section-id={section.id}
       style={{
         left: section.x,
         top: section.y,

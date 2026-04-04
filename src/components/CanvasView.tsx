@@ -73,6 +73,7 @@ export default function CanvasView() {
   const deleteConnection = useStore((s) => s.deleteConnection)
   const addLabel = useStore((s) => s.addLabel)
   const addSection = useStore((s) => s.addSection)
+  const compactSection = useStore((s) => s.compactSection)
   const highlightCardId = useHighlightCard()
   const setHighlightCard = useStore((s) => s.setHighlightCard)
   const saveViewport = useStore((s) => s.saveViewport)
@@ -350,6 +351,7 @@ export default function CanvasView() {
     }
 
     const noteCard = (e.target as HTMLElement).closest('.note-card')
+    const sectionBox = (e.target as HTMLElement).closest('.section-box')
 
     if (noteCard) {
       const cardId = noteCard.getAttribute('data-card-id')
@@ -420,6 +422,20 @@ export default function CanvasView() {
           },
         ],
       })
+    } else if (sectionBox) {
+      const secId = sectionBox.getAttribute('data-section-id')
+      if (!secId) return
+      setCtxMenu({
+        x: e.clientX,
+        y: e.clientY,
+        items: [
+          {
+            label: '分区最佳大小',
+            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>,
+            onClick: () => compactSection(secId),
+          },
+        ],
+      })
     } else {
       const coords = toCanvasCoords(e.clientX, e.clientY)
       setCtxMenu({
@@ -444,7 +460,7 @@ export default function CanvasView() {
         ],
       })
     }
-  }, [cards, addCard, addLabel, addSection, deleteCard, setEditingCard, updateCard, toCanvasCoords, connectingFrom])
+  }, [cards, addCard, addLabel, addSection, deleteCard, setEditingCard, updateCard, toCanvasCoords, connectingFrom, compactSection])
 
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
