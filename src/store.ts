@@ -417,26 +417,35 @@ export const useStore = create<AppState>((set, get) => ({
     }
 
     let changed = false
-    const updatedSections = sections.map((sec) => {
+    let removedFrom = false
+
+    let result = sections.map((sec) => {
       const members = sec.cardIds ?? []
       const isMember = members.includes(cardId)
 
       if (isMember) {
         if (isFullyInside(card, sec)) return sec
         changed = true
+        removedFrom = true
         return { ...sec, cardIds: members.filter((id) => id !== cardId) }
       }
 
-      if (!snappedToMemberOf(card, sec)) return sec
-      changed = true
-      return expandToFit(sec, [...members, cardId])
+      return sec
     })
+
+    if (!removedFrom) {
+      result = result.map((sec) => {
+        if ((sec.cardIds ?? []).includes(cardId)) return sec
+        if (!snappedToMemberOf(card, sec)) return sec
+        changed = true
+        return expandToFit(sec, [...(sec.cardIds ?? []), cardId])
+      })
+    }
 
     if (!changed) return
 
-    const final = updatedSections
-    const belongsTo = final.filter((sec) => (sec.cardIds ?? []).includes(cardId))
-    let dedupedSections = final
+    const belongsTo = result.filter((sec) => (sec.cardIds ?? []).includes(cardId))
+    let dedupedSections = result
     if (belongsTo.length > 1) {
       let bestSection: Section | null = null
       let bestOverlap = -1
@@ -446,7 +455,7 @@ export const useStore = create<AppState>((set, get) => ({
         const oy = Math.max(0, Math.min(card.y + ch, sec.y + sec.height) - Math.max(card.y, sec.y))
         if (ox * oy > bestOverlap) { bestOverlap = ox * oy; bestSection = sec }
       }
-      dedupedSections = final.map((sec) => {
+      dedupedSections = result.map((sec) => {
         if (sec === bestSection) return sec
         const ids = sec.cardIds ?? []
         if (!ids.includes(cardId)) return sec
