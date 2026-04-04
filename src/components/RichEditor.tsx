@@ -24,6 +24,15 @@ td.addRule('strikethrough', {
   replacement: (c) => `~~${c}~~`,
 })
 
+td.addRule('emptyParagraph', {
+  filter: (node) => {
+    if (node.nodeName !== 'P') return false
+    const html = (node as HTMLElement).innerHTML?.trim()
+    return html === '<br>' || html === '' || html === '<br class="ProseMirror-trailingBreak">'
+  },
+  replacement: () => '\n\n<br>\n\n',
+})
+
 td.addRule('image', {
   filter: 'img',
   replacement: (_c, node) => {

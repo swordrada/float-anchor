@@ -717,7 +717,7 @@ input {
 
 .card-content {
   padding: 8px 18px 18px;
-  overflow: hidden;
+  overflow: visible;
   position: relative;
   font-size: 13px;
   line-height: 1.65;
@@ -731,16 +731,6 @@ input {
   padding-top: 12px;
 }
 
-.card-content::after {
-  content: '';
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  height: 36px;
-  background: linear-gradient(transparent, var(--card-bg));
-  pointer-events: none;
-}
 
 .card-placeholder {
   padding: 8px 18px 18px;

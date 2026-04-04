@@ -98,10 +98,12 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight }: Prop
         const prevContain = el.style.contain
         el.style.height = 'auto'
         el.style.contain = 'none'
+        el.style.overflow = 'visible'
         void el.offsetHeight
-        const naturalHeight = Math.max(80, el.scrollHeight)
+        const naturalHeight = Math.max(80, el.scrollHeight + 12)
         el.style.height = prev
         el.style.contain = prevContain
+        el.style.overflow = ''
         updateCard(cardId, { height: naturalHeight })
       })
     }
@@ -272,7 +274,7 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight }: Prop
         left: card.x,
         top: card.y,
         width: card.width,
-        ...(card.height && !isEditing ? { height: card.height } : {}),
+        ...(card.height && !isEditing ? { minHeight: card.height } : {}),
       }}
       onDoubleClick={handleDoubleClick}
     >
