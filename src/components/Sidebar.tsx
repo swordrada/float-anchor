@@ -81,7 +81,7 @@ function UpdateBanner() {
   )
 }
 
-export default function Sidebar() {
+export default function Sidebar({ width }: { width?: number }) {
   const { activeCanvasId, setActiveCanvas, addCanvas, deleteCanvas, renameCanvas } =
     useStore(
       (s) => ({
@@ -143,7 +143,7 @@ export default function Sidebar() {
   }
 
   return (
-    <aside className="sidebar">
+    <aside className="sidebar" style={width ? { width } : undefined}>
       <div className="sidebar-header">
         <div className="sidebar-logo">
           <svg width="22" height="22" viewBox="0 0 100 100" className="logo-icon">

@@ -1,13 +1,40 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useStore } from './store'
 import Sidebar from './components/Sidebar'
 import CanvasView from './components/CanvasView'
 import SettingsModal from './components/SettingsModal'
 
+const SIDEBAR_MIN = 180
+const SIDEBAR_MAX = 400
+const SIDEBAR_DEFAULT = 228
+
 export default function App() {
   const { loaded, loadData, loadSettings } = useStore()
   const showSettings = useStore((s) => s.showSettings)
   const [platform, setPlatform] = useState<string>('darwin')
+  const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
+  const dragging = useRef(false)
+
+  const onResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    dragging.current = true
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    const onMove = (ev: MouseEvent) => {
+      if (!dragging.current) return
+      const w = Math.min(SIDEBAR_MAX, Math.max(SIDEBAR_MIN, ev.clientX))
+      setSidebarWidth(w)
+    }
+    const onUp = () => {
+      dragging.current = false
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+      document.removeEventListener('mousemove', onMove)
+      document.removeEventListener('mouseup', onUp)
+    }
+    document.addEventListener('mousemove', onMove)
+    document.addEventListener('mouseup', onUp)
+  }, [])
 
   useEffect(() => {
     loadSettings().then(async () => {
@@ -77,7 +104,8 @@ export default function App() {
       )}
 
       <div className="app-body">
-        <Sidebar />
+        <Sidebar width={sidebarWidth} />
+        <div className="sidebar-resize-handle" onMouseDown={onResizeStart} />
         <CanvasView />
       </div>
       {showSettings && <SettingsModal />}
