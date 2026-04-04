@@ -80,6 +80,22 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight }: Prop
     }
   }, [card?.title, card?.content, isEditing])
 
+  const measureHeight = useCallback(() => {
+    const el = cardRef.current
+    if (!el) return
+    const prev = el.style.height
+    const prevContain = el.style.contain
+    el.style.height = 'auto'
+    el.style.contain = 'none'
+    el.style.overflow = 'visible'
+    void el.offsetHeight
+    const naturalHeight = Math.max(80, el.scrollHeight)
+    el.style.height = prev
+    el.style.contain = prevContain
+    el.style.overflow = ''
+    return naturalHeight
+  }, [])
+
   useEffect(() => {
     if (isEditing) {
       wasEditing.current = true
@@ -92,22 +108,21 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight }: Prop
     } else if (wasEditing.current) {
       wasEditing.current = false
       requestAnimationFrame(() => {
-        const el = cardRef.current
-        if (!el) return
-        const prev = el.style.height
-        const prevContain = el.style.contain
-        el.style.height = 'auto'
-        el.style.contain = 'none'
-        el.style.overflow = 'visible'
-        void el.offsetHeight
-        const naturalHeight = Math.max(80, el.scrollHeight)
-        el.style.height = prev
-        el.style.contain = prevContain
-        el.style.overflow = ''
-        updateCard(cardId, { height: naturalHeight })
+        const h = measureHeight()
+        if (h != null) updateCard(cardId, { height: h })
       })
     }
-  }, [isEditing, cardId, updateCard])
+  }, [isEditing, cardId, updateCard, measureHeight])
+
+  useEffect(() => {
+    if (isEditing || !card) return
+    requestAnimationFrame(() => {
+      const h = measureHeight()
+      if (h != null && card.height && Math.abs(h - card.height) > 2) {
+        updateCard(cardId, { height: h })
+      }
+    })
+  }, [card?.content, card?.title, card?.width])
 
   const debouncedSave = useCallback(
     (t: string, c: string) => {
