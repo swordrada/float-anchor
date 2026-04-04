@@ -218,17 +218,21 @@ def get_card_markdown(card, md_library: dict) -> str:
         return raw_content
 
 
-def strip_first_heading(md_text: str) -> str:
+def strip_first_heading(md_text: str, title: str = "") -> str:
+    """Remove the first heading from markdown if it duplicates the card title."""
     lines = md_text.split("\n")
     result = []
-    skipped_h1 = False
+    stripped = False
     for line in lines:
-        if not skipped_h1 and re.match(r"^#\s+", line):
-            skipped_h1 = True
-            continue
+        if not stripped:
+            m = re.match(r"^(#{1,6})\s+(.+)", line)
+            if m:
+                heading_text = m.group(2).strip()
+                if not title or heading_text == title or title.startswith(heading_text) or heading_text.startswith(title):
+                    stripped = True
+                    continue
         result.append(line)
-    text = "\n".join(result).strip()
-    return text
+    return "\n".join(result).strip()
 
 
 def estimate_card_height(title: str, content: str, width: int = FA_DEFAULT_WIDTH) -> int:
@@ -424,7 +428,7 @@ def main():
 
             title = card_data.get("title", "")
             md_content = get_card_markdown(card_data, md_library)
-            body = strip_first_heading(md_content) if title else md_content
+            body = strip_first_heading(md_content, title) if title else md_content
 
             fa_card_id = str(uuid.uuid4())
             ci_id_to_fa_id[ci["id"]] = fa_card_id
