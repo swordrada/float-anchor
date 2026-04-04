@@ -95,9 +95,11 @@ export default function CanvasView() {
   const cullTimer = useRef<ReturnType<typeof setTimeout>>()
   const rafId = useRef(0)
 
-  const [isMiddleDragging, setIsMiddleDragging] = useState(false)
-  const middleDragStart = useRef({ x: 0, y: 0 })
+  const [isPanDragging, setIsPanDragging] = useState(false)
+  const panDragStart = useRef({ x: 0, y: 0 })
   const panAtDragStart = useRef({ x: 0, y: 0 })
+  const rightClickStart = useRef({ x: 0, y: 0, time: 0 })
+  const rightDragged = useRef(false)
 
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
   const [moveModalCardId, setMoveModalCardId] = useState<string | null>(null)
@@ -111,10 +113,20 @@ export default function CanvasView() {
     return () => clearTimeout(timer)
   }, [highlightCardId, setHighlightCard])
 
+  const rerasterTimer = useRef<ReturnType<typeof setTimeout>>()
+
   const applyTransform = useCallback(() => {
-    if (innerRef.current) {
-      innerRef.current.style.transform =
+    const el = innerRef.current
+    if (el) {
+      el.style.willChange = 'transform'
+      el.style.transform =
         `translate3d(${pan.current.x}px,${pan.current.y}px,0) scale(${scaleVal.current})`
+
+      clearTimeout(rerasterTimer.current)
+      rerasterTimer.current = setTimeout(() => {
+        if (!innerRef.current) return
+        innerRef.current.style.willChange = 'auto'
+      }, 200)
     }
     if (zoomRef.current) {
       zoomRef.current.textContent = `${Math.round(scaleVal.current * 100)}%`
@@ -216,12 +228,15 @@ export default function CanvasView() {
         const rect = vp.getBoundingClientRect()
         const cx = e.clientX - rect.left
         const cy = e.clientY - rect.top
-        pan.current = { x: cx - (cx - p.x) * ratio, y: cy - (cy - p.y) * ratio }
+        pan.current = { x: Math.round(cx - (cx - p.x) * ratio), y: Math.round(cy - (cy - p.y) * ratio) }
         scaleVal.current = ns
       } else {
+        const dx = Math.abs(e.deltaX) < 0.5 ? 0 : e.deltaX
+        const dy = Math.abs(e.deltaY) < 0.5 ? 0 : e.deltaY
+        if (dx === 0 && dy === 0) return
         pan.current = {
-          x: pan.current.x - e.deltaX,
-          y: pan.current.y - e.deltaY,
+          x: Math.round(pan.current.x - dx),
+          y: Math.round(pan.current.y - dy),
         }
       }
 
@@ -241,8 +256,15 @@ export default function CanvasView() {
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     if (e.button === 1) {
       e.preventDefault()
-      setIsMiddleDragging(true)
-      middleDragStart.current = { x: e.clientX, y: e.clientY }
+      setIsPanDragging(true)
+      panDragStart.current = { x: e.clientX, y: e.clientY }
+      panAtDragStart.current = { ...pan.current }
+    }
+    if (e.button === 2) {
+      rightClickStart.current = { x: e.clientX, y: e.clientY, time: Date.now() }
+      rightDragged.current = false
+      setIsPanDragging(true)
+      panDragStart.current = { x: e.clientX, y: e.clientY }
       panAtDragStart.current = { ...pan.current }
     }
     if (connectingFrom && e.button === 0) {
@@ -258,24 +280,29 @@ export default function CanvasView() {
   }, [connectingFrom, addConnection])
 
   useEffect(() => {
-    if (!isMiddleDragging) return
+    if (!isPanDragging) return
     const onMove = (e: MouseEvent) => {
+      const dx = e.clientX - panDragStart.current.x
+      const dy = e.clientY - panDragStart.current.y
+      if (!rightDragged.current && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
+        rightDragged.current = true
+      }
       pan.current = {
-        x: panAtDragStart.current.x + (e.clientX - middleDragStart.current.x),
-        y: panAtDragStart.current.y + (e.clientY - middleDragStart.current.y),
+        x: Math.round(panAtDragStart.current.x + dx),
+        y: Math.round(panAtDragStart.current.y + dy),
       }
       cancelAnimationFrame(rafId.current)
       rafId.current = requestAnimationFrame(applyTransform)
       scheduleCull()
     }
-    const onUp = () => setIsMiddleDragging(false)
+    const onUp = () => setIsPanDragging(false)
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
     return () => {
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
     }
-  }, [isMiddleDragging, applyTransform, scheduleCull])
+  }, [isPanDragging, applyTransform, scheduleCull])
 
   const toCanvasCoords = useCallback((clientX: number, clientY: number) => {
     const rect = viewportRef.current?.getBoundingClientRect()
@@ -314,6 +341,8 @@ export default function CanvasView() {
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
+
+    if (rightDragged.current) return
 
     if (connectingFrom) {
       setConnectingFrom(null)
@@ -578,7 +607,7 @@ export default function CanvasView() {
 
       <div
         ref={viewportRef}
-        className={`canvas-viewport ${isMiddleDragging ? 'panning' : ''} ${connectingFrom ? 'connecting' : ''}`}
+        className={`canvas-viewport ${isPanDragging ? 'panning' : ''} ${connectingFrom ? 'connecting' : ''}`}
         onMouseDown={handleMouseDown}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}

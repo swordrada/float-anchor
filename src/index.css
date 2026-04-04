@@ -498,9 +498,7 @@ input {
   left: 0;
   width: 1px;
   height: 1px;
-  will-change: transform;
   contain: layout style;
-  backface-visibility: hidden;
 }
 
 .canvas-empty-state {
