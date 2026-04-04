@@ -53,6 +53,25 @@ export default function SettingsModal() {
     }
   }, [server, username, password, setWebDAVConfig])
 
+  const handleManualSync = useCallback(async () => {
+    const cfg = settings.webdav
+    if (!cfg?.server) return
+    const store = useStore.getState()
+    store.setSyncStatus('syncing')
+    try {
+      store.persist()
+      await new Promise((r) => setTimeout(r, 500))
+      const res = await window.electronAPI.webdavStartupSync(cfg)
+      if (res.success && res.action === 'downloaded' && res.data) {
+        await store.loadData()
+      }
+      store.setSyncStatus(res.success ? 'success' : 'error')
+      if (res.success) setTimeout(() => useStore.getState().setSyncStatus('idle'), 3000)
+    } catch {
+      store.setSyncStatus('error')
+    }
+  }, [settings.webdav])
+
   const handleDisconnect = useCallback(() => {
     setWebDAVConfig(undefined)
     setConnected(false)
@@ -150,7 +169,12 @@ export default function SettingsModal() {
               </button>
               <button className="primary" onClick={handleSave}>保存</button>
               {connected && (
-                <button onClick={handleDisconnect}>断开</button>
+                <>
+                  <button onClick={handleManualSync} disabled={syncStatus === 'syncing'}>
+                    {syncStatus === 'syncing' ? '同步中...' : '同步'}
+                  </button>
+                  <button onClick={handleDisconnect}>断开</button>
+                </>
               )}
             </div>
             <div className="sync-status">

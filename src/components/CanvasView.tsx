@@ -143,8 +143,41 @@ export default function CanvasView() {
       pan.current = { x: vp.panX, y: vp.panY }
       scaleVal.current = vp.scale
     } else {
-      pan.current = { x: 0, y: 0 }
-      scaleVal.current = 1
+      const canvasCards = canvas?.cards ?? []
+      const vpEl = viewportRef.current
+      if (canvasCards.length > 0 && vpEl) {
+        const result = findDensestCenter(canvasCards)
+        if (result) {
+          const { clusterCards } = result
+          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+          for (const c of clusterCards) {
+            if (c.x < minX) minX = c.x
+            if (c.y < minY) minY = c.y
+            if (c.x + c.width > maxX) maxX = c.x + c.width
+            if (c.y + (c.height ?? 200) > maxY) maxY = c.y + (c.height ?? 200)
+          }
+          const clusterW = maxX - minX
+          const clusterH = maxY - minY
+          const centerX = minX + clusterW / 2
+          const centerY = minY + clusterH / 2
+          const vpW = vpEl.clientWidth
+          const vpH = vpEl.clientHeight
+          const scaleX = (vpW * 0.85) / Math.max(clusterW, 1)
+          const scaleY = (vpH * 0.85) / Math.max(clusterH, 1)
+          const targetScale = Math.min(Math.max(Math.min(scaleX, scaleY), MIN_SCALE), MAX_SCALE, 1.2)
+          pan.current = {
+            x: vpW / 2 - centerX * targetScale,
+            y: vpH / 2 - centerY * targetScale,
+          }
+          scaleVal.current = targetScale
+        } else {
+          pan.current = { x: 0, y: 0 }
+          scaleVal.current = 1
+        }
+      } else {
+        pan.current = { x: 0, y: 0 }
+        scaleVal.current = 1
+      }
     }
     prevCanvasId.current = meta?.id ?? null
 

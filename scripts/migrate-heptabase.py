@@ -16,7 +16,7 @@ import re
 from pathlib import Path
 
 
-FA_DEFAULT_WIDTH = 240
+FA_DEFAULT_WIDTH = 320
 FA_GAP = 12
 FA_TITLE_LINE_HEIGHT = 28
 FA_BODY_LINE_HEIGHT = 20
