@@ -10,8 +10,8 @@ import type { MenuItem } from './ContextMenu'
 
 const MIN_SCALE = 0.15
 const MAX_SCALE = 3
-const VIEWPORT_PADDING = 400
-const CULL_THROTTLE = 120
+const VIEWPORT_PADDING = 800
+const CULL_THROTTLE = 50
 
 function findDensestCenter(cards: Card[]): { cx: number; cy: number; clusterCards: Card[] } | null {
   if (cards.length === 0) return null

@@ -116,8 +116,15 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight }: Prop
     }
   }, [isEditing, cardId, updateCard, measureHeight])
 
+  const prevContent = useRef(card?.content)
+  const prevTitle = useRef(card?.title)
   useEffect(() => {
     if (isEditing || !card) return
+    const contentChanged = prevContent.current !== card.content
+    const titleChanged = prevTitle.current !== card.title
+    prevContent.current = card.content
+    prevTitle.current = card.title
+    if (!contentChanged && !titleChanged) return
     requestAnimationFrame(() => {
       const h = measureHeight()
       if (h != null && card.height && Math.abs(h - card.height) > 2) {

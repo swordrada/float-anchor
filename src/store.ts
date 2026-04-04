@@ -103,7 +103,7 @@ export const useStore = create<AppState>((set, get) => ({
           }).catch(() => set({ syncStatus: 'error' }))
         }, 5000)
       }
-    }, 300)
+    }, 600)
   },
 
   loadSettings: async () => {
@@ -804,10 +804,13 @@ export function useActiveCanvasMeta() {
 }
 
 export function useActiveCards() {
-  return useStore((s) => {
-    const c = s.canvases.find((c) => c.id === s.activeCanvasId)
-    return c?.cards ?? []
-  })
+  return useStore(
+    (s) => {
+      const c = s.canvases.find((c) => c.id === s.activeCanvasId)
+      return c?.cards ?? []
+    },
+    (a, b) => a === b,
+  )
 }
 
 export function useCardById(cardId: string) {
@@ -816,6 +819,7 @@ export function useCardById(cardId: string) {
       const c = s.canvases.find((c) => c.id === s.activeCanvasId)
       return c?.cards.find((card) => card.id === cardId)
     },
+    shallow,
   )
 }
 
@@ -836,24 +840,33 @@ export function useCardActions() {
 }
 
 export function useActiveLabels() {
-  return useStore((s) => {
-    const c = s.canvases.find((c) => c.id === s.activeCanvasId)
-    return c?.labels ?? []
-  })
+  return useStore(
+    (s) => {
+      const c = s.canvases.find((c) => c.id === s.activeCanvasId)
+      return c?.labels ?? []
+    },
+    (a, b) => a === b,
+  )
 }
 
 export function useActiveSections() {
-  return useStore((s) => {
-    const c = s.canvases.find((c) => c.id === s.activeCanvasId)
-    return c?.sections ?? []
-  })
+  return useStore(
+    (s) => {
+      const c = s.canvases.find((c) => c.id === s.activeCanvasId)
+      return c?.sections ?? []
+    },
+    (a, b) => a === b,
+  )
 }
 
 export function useActiveConnections() {
-  return useStore((s) => {
-    const c = s.canvases.find((c) => c.id === s.activeCanvasId)
-    return c?.connections ?? []
-  })
+  return useStore(
+    (s) => {
+      const c = s.canvases.find((c) => c.id === s.activeCanvasId)
+      return c?.connections ?? []
+    },
+    (a, b) => a === b,
+  )
 }
 
 export function useHighlightCard() {
