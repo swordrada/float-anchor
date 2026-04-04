@@ -196,6 +196,58 @@ def load_card_library_md(card_lib_dir: str) -> dict:
     return result
 
 
+def extract_image_file_ids(card, token: str = None, images_dir: str = None) -> list:
+    """Extract ordered list of image URLs from a card's TipTap JSON content.
+    
+    If token is provided, downloads images to images_dir and returns local paths.
+    Otherwise returns Heptabase API URLs.
+    """
+    raw = card.get("content", "")
+    if not raw:
+        return []
+    try:
+        doc = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return []
+
+    urls = []
+    def walk(node):
+        if not isinstance(node, dict):
+            return
+        if node.get("type") == "image":
+            attrs = node.get("attrs", {})
+            fid = attrs.get("fileId", "")
+            src = attrs.get("src", "")
+            if fid:
+                if token and images_dir:
+                    local_path = download_heptabase_image(fid, images_dir, token)
+                    if local_path:
+                        urls.append(local_path)
+                    else:
+                        urls.append(f"https://app.heptabase.com/api/files/{fid}")
+                else:
+                    urls.append(f"https://app.heptabase.com/api/files/{fid}")
+            elif src:
+                urls.append(src)
+        for c in node.get("content", []):
+            walk(c)
+    walk(doc)
+    return urls
+
+
+def fix_relative_image_paths(md_text: str, image_urls: list) -> str:
+    """Replace relative image paths (./xxx-assets/...) with actual URLs or local paths."""
+    if not image_urls:
+        return md_text
+
+    url_iter = iter(image_urls)
+    return re.sub(
+        r'!\[([^\]]*)\]\((\./[^)]+|\.\.\/[^)]+)\)',
+        lambda m: f"![{m.group(1)}]({next(url_iter, m.group(2))})",
+        md_text,
+    )
+
+
 def get_card_markdown(card, md_library: dict) -> str:
     title = card.get("title", "")
     sanitized = sanitize_title_to_filename(title)
@@ -341,18 +393,51 @@ def default_output_path() -> str:
 
 file_metadata = {}
 
+
+def download_heptabase_image(file_id: str, dest_dir: str, token: str) -> str:
+    """Download an image from Heptabase API and return the local file path."""
+    import urllib.request
+    dest_path = os.path.join(dest_dir, f"{file_id}.png")
+    if os.path.exists(dest_path):
+        return dest_path
+    url = f"https://app.heptabase.com/api/files/{file_id}"
+    req = urllib.request.Request(url, headers={
+        "Authorization": f"Bearer {token}",
+        "User-Agent": "FloatAnchor-Migrator/1.0",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = resp.read()
+            content_type = resp.headers.get("Content-Type", "")
+            if "image" not in content_type and len(data) < 1000:
+                return ""
+            with open(dest_path, "wb") as f:
+                f.write(data)
+            return dest_path
+    except Exception as e:
+        print(f"    Warning: failed to download {file_id}: {e}")
+        return ""
+
+
 def main():
     global file_metadata
     if len(sys.argv) < 2:
-        print("Usage: python3 scripts/migrate-heptabase.py <heptabase-backup-dir> [--output <path>]")
+        print("Usage: python3 scripts/migrate-heptabase.py <heptabase-backup-dir> [--output <path>] [--token <heptabase-token>]")
         sys.exit(1)
 
     backup_input = sys.argv[1]
     output_path = None
+    hepta_token = None
+
     if "--output" in sys.argv:
         idx = sys.argv.index("--output")
         if idx + 1 < len(sys.argv):
             output_path = sys.argv[idx + 1]
+
+    if "--token" in sys.argv:
+        idx = sys.argv.index("--token")
+        if idx + 1 < len(sys.argv):
+            hepta_token = sys.argv[idx + 1]
 
     if not output_path:
         output_path = default_output_path()
@@ -406,6 +491,14 @@ def main():
     active_wbs = [w for w in data["whiteBoardList"] if not w.get("isTrashed")]
     active_wbs.sort(key=lambda w: w.get("createdTime", ""))
 
+    images_dir = None
+    if hepta_token:
+        images_dir = os.path.join(os.path.dirname(output_path), "images")
+        os.makedirs(images_dir, exist_ok=True)
+        print(f"Token provided — images will be downloaded to {images_dir}")
+    else:
+        print("No --token provided — internal images will use Heptabase API URLs (may require auth)")
+
     print(f"Active whiteboards: {len(active_wbs)}")
 
     canvases = []
@@ -413,6 +506,7 @@ def main():
     total_sections = 0
     total_labels = 0
     total_connections = 0
+    total_images_downloaded = 0
 
     for wb in active_wbs:
         canvas_id = str(uuid.uuid4())
@@ -428,6 +522,8 @@ def main():
 
             title = card_data.get("title", "")
             md_content = get_card_markdown(card_data, md_library)
+            image_urls = extract_image_file_ids(card_data, hepta_token, images_dir)
+            md_content = fix_relative_image_paths(md_content, image_urls)
             body = strip_first_heading(md_content, title) if title else md_content
 
             fa_card_id = str(uuid.uuid4())

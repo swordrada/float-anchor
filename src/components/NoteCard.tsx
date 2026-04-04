@@ -267,6 +267,25 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight }: Prop
       }
       return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
     },
+    img: ({ src, alt, ...props }) => (
+      <img
+        src={src}
+        alt={alt || ''}
+        {...props}
+        style={{ maxWidth: '100%', borderRadius: 4 }}
+        onError={(e) => {
+          const el = e.currentTarget
+          if (!el.dataset.failed) {
+            el.dataset.failed = '1'
+            el.style.display = 'none'
+            const placeholder = document.createElement('div')
+            placeholder.textContent = alt || 'Image unavailable'
+            placeholder.style.cssText = 'padding:12px 16px;background:#f3f4f6;border-radius:6px;color:#9ca3af;font-size:13px;text-align:center;margin:4px 0'
+            el.parentNode?.insertBefore(placeholder, el.nextSibling)
+          }
+        }}
+      />
+    ),
   }), [])
 
   const renderedContent = useMemo(() => {
