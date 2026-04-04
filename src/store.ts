@@ -591,76 +591,124 @@ export const useStore = create<AppState>((set, get) => ({
     const members = canvas.cards.filter((c) => memberIds.includes(c.id))
     const connections = canvas.connections ?? []
 
-    const connectedIds = new Set<string>()
+    const lockedIds = new Set<string>()
     for (const conn of connections) {
       if (memberIds.includes(conn.fromCardId) && memberIds.includes(conn.toCardId)) {
-        connectedIds.add(conn.fromCardId)
-        connectedIds.add(conn.toCardId)
+        lockedIds.add(conn.fromCardId)
+        lockedIds.add(conn.toCardId)
       }
     }
 
-    const freeCards = members.filter((c) => !connectedIds.has(c.id))
+    type Rect = { id: string; x: number; y: number; w: number; h: number; locked: boolean }
+    const rects: Rect[] = members.map((c) => ({
+      id: c.id, x: c.x, y: c.y, w: c.width, h: c.height ?? 200,
+      locked: lockedIds.has(c.id),
+    }))
 
-    type Rect = { id: string; x: number; y: number; width: number; height: number }
-    const placed: Rect[] = members
-      .filter((c) => connectedIds.has(c.id))
-      .map((c) => ({ id: c.id, x: c.x, y: c.y, width: c.width, height: c.height ?? 200 }))
-
-    const cardMap = new Map(members.map((c) => [c.id, { ...c }]))
-
-    const collides = (r: Rect) =>
-      placed.some((p) => p.id !== r.id &&
-        r.x < p.x + p.width + GAP && r.x + r.width + GAP > p.x &&
-        r.y < p.y + p.height + GAP && r.y + r.height + GAP > p.y)
-
-    const centroidX = members.reduce((s, c) => s + c.x + c.width / 2, 0) / members.length
-    const centroidY = members.reduce((s, c) => s + c.y + (c.height ?? 200) / 2, 0) / members.length
-
-    const sorted = [...freeCards].sort((a, b) => {
-      const da = Math.hypot(a.x + a.width / 2 - centroidX, a.y + (a.height ?? 200) / 2 - centroidY)
-      const db = Math.hypot(b.x + b.width / 2 - centroidX, b.y + (b.height ?? 200) / 2 - centroidY)
-      return da - db
-    })
-
-    for (const fc of sorted) {
-      const selfW = fc.width
-      const selfH = fc.height ?? 200
-
-      type Candidate = { x: number; y: number; dist: number }
-      const candidates: Candidate[] = []
-
-      for (const anchor of placed) {
-        const ax = anchor.x, ay = anchor.y, aw = anchor.width, ah = anchor.height
-
-        const tryPos = (cx: number, cy: number) => {
-          candidates.push({ x: cx, y: cy, dist: Math.hypot(cx - fc.x, cy - fc.y) })
-        }
-
-        // below anchor, x-aligned
-        tryPos(ax, ay + ah + GAP)
-        // above anchor, x-aligned
-        tryPos(ax, ay - selfH - GAP)
-        // right of anchor, y-aligned
-        tryPos(ax + aw + GAP, ay)
-        // left of anchor, y-aligned
-        tryPos(ax - selfW - GAP, ay)
-      }
-
-      candidates.sort((a, b) => a.dist - b.dist)
-
-      let snapped = false
-      for (const c of candidates) {
-        const rect: Rect = { id: fc.id, x: Math.round(c.x), y: Math.round(c.y), width: selfW, height: selfH }
-        if (!collides(rect)) {
-          cardMap.set(fc.id, { ...fc, x: rect.x, y: rect.y })
-          placed.push(rect)
-          snapped = true
+    const byX = [...rects].sort((a, b) => a.x - b.x)
+    const columns: Rect[][] = []
+    for (const r of byX) {
+      const cx = r.x + r.w / 2
+      let placed = false
+      for (const col of columns) {
+        const colCx = col[0].x + col[0].w / 2
+        if (Math.abs(cx - colCx) < Math.max(r.w, col[0].w) * 0.6) {
+          col.push(r)
+          placed = true
           break
         }
       }
-      if (!snapped) {
-        placed.push({ id: fc.id, x: fc.x, y: fc.y, width: selfW, height: selfH })
+      if (!placed) columns.push([r])
+    }
+
+    for (const col of columns) col.sort((a, b) => a.y - b.y)
+    columns.sort((a, b) => {
+      const medA = a.reduce((s, r) => s + r.x, 0) / a.length
+      const medB = b.reduce((s, r) => s + r.x, 0) / b.length
+      return medA - medB
+    })
+
+    const originY = Math.min(...rects.map((r) => r.y))
+    const cardMap = new Map(members.map((c) => [c.id, { ...c }]))
+
+    const finalPlaced: Rect[] = []
+    for (const r of rects) {
+      if (r.locked) finalPlaced.push({ ...r })
+    }
+
+    const colOverlapsLocked = (x: number, y: number, w: number, h: number) =>
+      finalPlaced.some((p) =>
+        x < p.x + p.w + GAP && x + w + GAP > p.x &&
+        y < p.y + p.h + GAP && y + h + GAP > p.y)
+
+    let colX = rects.reduce((m, r) => Math.min(m, r.x), Infinity)
+
+    for (const col of columns) {
+      const colW = Math.max(...col.map((r) => r.w))
+      const freeInCol = col.filter((r) => !r.locked)
+      const lockedInCol = col.filter((r) => r.locked).sort((a, b) => a.y - b.y)
+
+      // Build list of "slots" — free vertical intervals in this column,
+      // considering locked cards as immovable obstacles.
+      type Slot = { top: number; bottom: number }
+      const slots: Slot[] = []
+      let scanY = originY
+
+      for (const lk of lockedInCol) {
+        if (lk.y > scanY + GAP) {
+          slots.push({ top: scanY, bottom: lk.y - GAP })
+        }
+        scanY = Math.max(scanY, lk.y + lk.h + GAP)
       }
+      // Unbounded slot after all locked cards
+      slots.push({ top: scanY, bottom: Infinity })
+
+      // Fill slots with free cards, preserving original y-order.
+      const pending = [...freeInCol]
+      for (const slot of slots) {
+        let cy = slot.top
+        let i = 0
+        while (i < pending.length) {
+          const r = pending[i]
+          if (cy + r.h > slot.bottom && slot.bottom !== Infinity) {
+            // Card doesn't fit in remaining slot space, try next card
+            i++
+            continue
+          }
+          // Check overlap with all already-placed cards (including locked from other cols)
+          if (!colOverlapsLocked(colX, cy, r.w, r.h)) {
+            cardMap.set(r.id, { ...cardMap.get(r.id)!, x: Math.round(colX), y: Math.round(cy) })
+            finalPlaced.push({ ...r, x: colX, y: cy })
+            cy += r.h + GAP
+            pending.splice(i, 1)
+          } else {
+            // Skip past the obstacle
+            let maxBottom = cy
+            for (const p of finalPlaced) {
+              if (colX < p.x + p.w + GAP && colX + r.w + GAP > p.x &&
+                  cy < p.y + p.h + GAP && cy + r.h + GAP > p.y) {
+                maxBottom = Math.max(maxBottom, p.y + p.h + GAP)
+              }
+            }
+            cy = maxBottom
+          }
+        }
+      }
+
+      // Any remaining cards that couldn't fit in slots go at the tail
+      let tailY = slots[slots.length - 1].top
+      for (const p of finalPlaced) {
+        if (p.x >= colX - GAP && p.x < colX + colW + GAP) {
+          tailY = Math.max(tailY, p.y + p.h + GAP)
+        }
+      }
+      for (const r of pending) {
+        cardMap.set(r.id, { ...cardMap.get(r.id)!, x: Math.round(colX), y: Math.round(tailY) })
+        finalPlaced.push({ ...r, x: colX, y: tailY })
+        tailY += r.h + GAP
+      }
+
+      colX += colW + GAP
     }
 
     const updatedCards = [...cardMap.values()]
