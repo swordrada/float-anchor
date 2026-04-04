@@ -67,9 +67,12 @@
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "FloatAnchor"
+      "shortcutName": "FloatAnchor",
+      "installerSidebar": null,
+      "differentialPackage": true
     }
   },
   "dependencies": {

@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   triggerUpdate: (downloadUrl: string, assetName: string) =>
     ipcRenderer.invoke('trigger-update', downloadUrl, assetName),
+  getResumeProgress: (assetName: string) =>
+    ipcRenderer.invoke('get-resume-progress', assetName),
   webdavTest: (config: any) => ipcRenderer.invoke('webdav-test', config),
   webdavUpload: (config: any) => ipcRenderer.invoke('webdav-upload', config),
   webdavDownload: (config: any) => ipcRenderer.invoke('webdav-download', config),

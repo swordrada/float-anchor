@@ -54,31 +54,85 @@ function httpsGetJSON(url: string): Promise<any> {
   })
 }
 
+function getDownloadMeta(destPath: string) {
+  return destPath + '.meta'
+}
+
 function downloadFile(url: string, destPath: string, onProgress?: (pct: number) => void): Promise<void> {
   return new Promise((resolve, reject) => {
+    const partPath = destPath + '.part'
+    let existingBytes = 0
+    if (fs.existsSync(partPath)) {
+      existingBytes = fs.statSync(partPath).size
+    }
+
     const get = (reqUrl: string, redirects = 0) => {
       if (redirects > 10) return reject(new Error('Too many redirects'))
       const mod = reqUrl.startsWith('https') ? https : require('node:http')
-      mod.get(reqUrl, { headers: { 'User-Agent': 'FloatAnchor-Updater', Accept: 'application/octet-stream' } }, (res: IncomingMessage) => {
+      const headers: Record<string, string> = {
+        'User-Agent': 'FloatAnchor-Updater',
+        Accept: 'application/octet-stream',
+      }
+      if (existingBytes > 0) {
+        headers['Range'] = `bytes=${existingBytes}-`
+      }
+      mod.get(reqUrl, { headers }, (res: IncomingMessage) => {
         if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
           return get(res.headers.location, redirects + 1)
         }
-        if (res.statusCode !== 200) return reject(new Error(`HTTP ${res.statusCode}`))
-        const totalBytes = parseInt(res.headers['content-length'] || '0', 10)
-        let downloaded = 0
-        const ws = fs.createWriteStream(destPath)
+
+        const isPartial = res.statusCode === 206
+        if (res.statusCode !== 200 && !isPartial) {
+          return reject(new Error(`HTTP ${res.statusCode}`))
+        }
+
+        if (res.statusCode === 200 && existingBytes > 0) {
+          existingBytes = 0
+        }
+
+        let totalBytes: number
+        if (isPartial) {
+          const cr = res.headers['content-range']
+          totalBytes = cr ? parseInt(cr.split('/')[1], 10) : 0
+        } else {
+          totalBytes = parseInt(res.headers['content-length'] || '0', 10)
+        }
+
+        if (totalBytes > 0) {
+          fs.writeFileSync(getDownloadMeta(destPath), JSON.stringify({ totalBytes, url }))
+        }
+
+        let downloaded = existingBytes
+        const ws = fs.createWriteStream(partPath, { flags: isPartial ? 'a' : 'w' })
         res.on('data', (chunk: Buffer) => {
           downloaded += chunk.length
           if (totalBytes > 0 && onProgress) onProgress(Math.round((downloaded / totalBytes) * 100))
         })
         res.pipe(ws)
-        ws.on('finish', () => { ws.close(); resolve() })
+        ws.on('finish', () => {
+          ws.close()
+          fs.renameSync(partPath, destPath)
+          try { fs.unlinkSync(getDownloadMeta(destPath)) } catch {}
+          resolve()
+        })
         ws.on('error', reject)
         res.on('error', reject)
       }).on('error', reject)
     }
     get(url)
   })
+}
+
+function getResumePercent(destPath: string): number {
+  const partPath = destPath + '.part'
+  const metaPath = getDownloadMeta(destPath)
+  if (!fs.existsSync(partPath) || !fs.existsSync(metaPath)) return 0
+  try {
+    const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'))
+    const downloaded = fs.statSync(partPath).size
+    if (meta.totalBytes > 0) return Math.round((downloaded / meta.totalBytes) * 100)
+  } catch {}
+  return 0
 }
 
 interface ReleaseAsset {
@@ -115,11 +169,17 @@ async function checkForUpdates() {
     const asset = release.assets.find((a) => a.name === assetName)
     if (!asset) return
 
+    const tmpDir = path.join(app.getPath('temp'), 'float-anchor-update')
+    const destPath = path.join(tmpDir, asset.name)
+    const alreadyDownloaded = fs.existsSync(destPath)
+    const resumePct = alreadyDownloaded ? 100 : getResumePercent(destPath)
+
     mainWindow?.webContents.send('update-available', {
       version: latestVersion,
       currentVersion: CURRENT_VERSION,
       assetName: asset.name,
       downloadUrl: asset.browser_download_url,
+      resumePercent: resumePct,
     })
   } catch (err) {
     console.error('Update check failed:', err)
@@ -131,13 +191,23 @@ function startUpdateChecker() {
   updateCheckTimer = setInterval(() => checkForUpdates(), 60_000)
 }
 
+ipcMain.handle('get-resume-progress', async (_event, assetName: string) => {
+  const tmpDir = path.join(app.getPath('temp'), 'float-anchor-update')
+  const destPath = path.join(tmpDir, assetName)
+  if (fs.existsSync(destPath)) return 100
+  return getResumePercent(destPath)
+})
+
+let activeDownloadAbort: (() => void) | null = null
+
 ipcMain.handle('trigger-update', async (_event, downloadUrl: string, assetName: string) => {
   try {
     const tmpDir = path.join(app.getPath('temp'), 'float-anchor-update')
     if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true })
     const destPath = path.join(tmpDir, assetName)
 
-    mainWindow?.webContents.send('update-progress', { stage: 'downloading', percent: 0 })
+    const resumePct = getResumePercent(destPath)
+    mainWindow?.webContents.send('update-progress', { stage: 'downloading', percent: resumePct })
 
     await downloadFile(downloadUrl, destPath, (pct) => {
       mainWindow?.webContents.send('update-progress', { stage: 'downloading', percent: pct })

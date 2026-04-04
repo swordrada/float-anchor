@@ -98,6 +98,7 @@ declare global {
       onUpdateAvailable: (cb: (info: UpdateInfo) => void) => void
       onUpdateProgress: (cb: (progress: UpdateProgress) => void) => void
       triggerUpdate: (downloadUrl: string, assetName: string) => Promise<{ success: boolean; error?: string }>
+      getResumeProgress: (assetName: string) => Promise<number>
       webdavTest: (config: WebDAVConfig) => Promise<{ success: boolean; error?: string }>
       webdavUpload: (config: WebDAVConfig) => Promise<{ success: boolean; error?: string }>
       webdavDownload: (config: WebDAVConfig) => Promise<{ success: boolean; data?: AppData; error?: string }>

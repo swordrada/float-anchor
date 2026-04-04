@@ -11,7 +11,11 @@ function UpdateBanner() {
     window.electronAPI.onUpdateAvailable((info) => {
       setUpdateInfo({ version: info.version, downloadUrl: info.downloadUrl, assetName: info.assetName })
       setDismissed(false)
-      setProgress(null)
+      if ((info as any).resumePercent > 0 && (info as any).resumePercent < 100) {
+        setProgress({ stage: 'downloading', percent: (info as any).resumePercent })
+      } else {
+        setProgress(null)
+      }
     })
     window.electronAPI.onUpdateProgress((p) => {
       setProgress({ stage: p.stage, percent: p.percent })
@@ -24,7 +28,20 @@ function UpdateBanner() {
     window.electronAPI.triggerUpdate(updateInfo.downloadUrl, updateInfo.assetName)
   }, [updateInfo])
 
-  if (!updateInfo || dismissed) return null
+  if (!updateInfo) return null
+
+  const isDownloading = progress?.stage === 'downloading' && progress.percent < 100
+
+  if (dismissed && isDownloading) {
+    return (
+      <div className="update-mini-bar" onClick={() => setDismissed(false)} title={`下载中 ${progress!.percent}%，点击展开`}>
+        <div className="update-mini-fill" style={{ width: `${progress!.percent}%` }} />
+        <span className="update-mini-label">{progress!.percent}%</span>
+      </div>
+    )
+  }
+
+  if (dismissed) return null
 
   return (
     <div className="update-banner">
