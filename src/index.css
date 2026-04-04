@@ -605,7 +605,7 @@ input {
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-light), var(--shadow-md);
   z-index: 50;
-  min-width: 360px;
+  min-width: 400px;
   overflow: visible;
   contain: none;
 }
@@ -716,7 +716,7 @@ input {
 
 
 .card-content {
-  padding: 8px 18px 18px;
+  padding: 8px 18px 14px;
   overflow: visible;
   position: relative;
   font-size: 13px;

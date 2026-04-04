@@ -185,7 +185,7 @@ export const useStore = create<AppState>((set, get) => ({
       content: '',
       x,
       y,
-      width: 320,
+      width: 373,
     }
     set((s) => ({
       canvases: s.canvases.map((c) =>

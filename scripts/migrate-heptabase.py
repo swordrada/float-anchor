@@ -16,12 +16,12 @@ import re
 from pathlib import Path
 
 
-FA_DEFAULT_WIDTH = 320
+FA_DEFAULT_WIDTH = 373
 FA_GAP = 12
 FA_TITLE_LINE_HEIGHT = 28
 FA_BODY_LINE_HEIGHT = 20
 FA_HEADER_PADDING = 24 + 8   # drag-handle(24) + card-header padding-top(8)
-FA_BODY_PADDING = 18 + 18    # card-content padding top(8) + bottom(18) + extra(10)
+FA_BODY_PADDING = 8 + 14     # card-content padding top(8) + bottom(14)
 FA_CHARS_PER_LINE = 14       # ~14 CJK chars per 240px at 13px font
 
 SECTION_COLORS = ['#9ca3af', '#60a5fa', '#34d399', '#fb923c', '#f472b6']
