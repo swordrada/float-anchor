@@ -16,6 +16,14 @@ import re
 from pathlib import Path
 
 
+FA_DEFAULT_WIDTH = 240
+FA_GAP = 12
+FA_TITLE_LINE_HEIGHT = 28
+FA_BODY_LINE_HEIGHT = 20
+FA_HEADER_PADDING = 24 + 8   # drag-handle(24) + card-header padding-top(8)
+FA_BODY_PADDING = 18 + 18    # card-content padding top(8) + bottom(18) + extra(10)
+FA_CHARS_PER_LINE = 14       # ~14 CJK chars per 240px at 13px font
+
 SECTION_COLORS = ['#9ca3af', '#60a5fa', '#34d399', '#fb923c', '#f472b6']
 
 HEPTABASE_COLOR_MAP = {
@@ -215,6 +223,80 @@ def strip_first_heading(md_text: str) -> str:
     return text
 
 
+def estimate_card_height(title: str, content: str, width: int = FA_DEFAULT_WIDTH) -> int:
+    """Estimate card height based on title + content text length."""
+    chars_per_line = max(1, (width - 36) // 17)  # 36 = padding*2, 17px per CJK char approx
+
+    h = FA_HEADER_PADDING
+
+    if title:
+        title_lines = max(1, -(-len(title) // chars_per_line))  # ceil division
+        h += title_lines * FA_TITLE_LINE_HEIGHT
+
+    if content:
+        lines = content.split("\n")
+        body_lines = 0
+        for line in lines:
+            stripped = line.strip()
+            if not stripped or stripped == '<br>':
+                body_lines += 1
+                continue
+            if stripped.startswith("!["):
+                body_lines += 10
+                continue
+            if stripped.startswith("#"):
+                body_lines += 2
+                continue
+            visible_len = len(re.sub(r'<[^>]+>|\[([^\]]*)\]\([^)]*\)|\*\*|~~|`', r'\1', stripped))
+            body_lines += max(1, -(-visible_len // chars_per_line))
+
+        h += FA_BODY_PADDING + body_lines * FA_BODY_LINE_HEIGHT
+    else:
+        h += 40
+
+    return min(max(80, h), 2000)
+
+
+def cards_overlap(a, b):
+    aw, ah = a["width"], a.get("height", 200)
+    bw, bh = b["width"], b.get("height", 200)
+    return (a["x"] < b["x"] + bw + FA_GAP and
+            a["x"] + aw + FA_GAP > b["x"] and
+            a["y"] < b["y"] + bh + FA_GAP and
+            a["y"] + ah + FA_GAP > b["y"])
+
+
+def fix_overlaps(cards: list) -> list:
+    """Greedy sweep: place cards in y-order, push each one down past all prior cards."""
+    if len(cards) <= 1:
+        return cards
+
+    cards.sort(key=lambda c: (c["y"], c["x"]))
+
+    placed = []
+    for card in cards:
+        cw = card["width"]
+        ch = card.get("height", 200)
+
+        for _attempt in range(len(placed) + 1):
+            collision = False
+            for p in placed:
+                pw = p["width"]
+                ph = p.get("height", 200)
+                if (card["x"] < p["x"] + pw + FA_GAP and
+                    card["x"] + cw + FA_GAP > p["x"] and
+                    card["y"] < p["y"] + ph + FA_GAP and
+                    card["y"] + ch + FA_GAP > p["y"]):
+                    card["y"] = round(p["y"] + ph + FA_GAP, 2)
+                    collision = True
+            if not collision:
+                break
+
+        placed.append(card)
+
+    return placed
+
+
 def default_output_path() -> str:
     if sys.platform == "darwin":
         base = os.path.expanduser("~/Library/Application Support/float-anchor/data")
@@ -294,6 +376,7 @@ def main():
 
         ci_id_to_fa_id = {}
         cards = []
+
         for ci in instances:
             card_data = card_map.get(ci["cardId"])
             if not card_data or card_data.get("isTrashed"):
@@ -303,14 +386,10 @@ def main():
             md_content = get_card_markdown(card_data, md_library)
             body = strip_first_heading(md_content) if title else md_content
 
-            card_width = ci.get("width", 240)
-            card_height = ci.get("height")
-
-            if card_width and card_width < 200:
-                card_width = 240
-
             fa_card_id = str(uuid.uuid4())
             ci_id_to_fa_id[ci["id"]] = fa_card_id
+
+            est_height = estimate_card_height(title, body, FA_DEFAULT_WIDTH)
 
             fa_card = {
                 "id": fa_card_id,
@@ -318,12 +397,14 @@ def main():
                 "content": body,
                 "x": round(ci.get("x", 0), 2),
                 "y": round(ci.get("y", 0), 2),
-                "width": round(card_width, 0) if card_width else 240,
+                "width": FA_DEFAULT_WIDTH,
+                "height": est_height,
             }
-            if card_height and card_height >= 100:
-                fa_card["height"] = round(card_height, 0)
 
             cards.append(fa_card)
+
+        cards = fix_overlaps(cards)
+        scale = 1.0
 
         fa_sections = []
         h_sections = wb_sections.get(wb["id"], [])
@@ -337,13 +418,30 @@ def main():
 
             color = HEPTABASE_COLOR_MAP.get(hs.get("color", ""), '#9ca3af')
 
+            sec_x = round(hs.get("x", 0), 2)
+            sec_y = round(hs.get("y", 0), 2)
+            sec_w = round(hs.get("width", 600), 0)
+            sec_h = round(hs.get("height", 400), 0)
+
+            if member_fa_ids:
+                member_cards = [c for c in cards if c["id"] in set(member_fa_ids)]
+                if member_cards:
+                    min_x = min(c["x"] for c in member_cards) - 24
+                    min_y = min(c["y"] for c in member_cards) - 60
+                    max_x = max(c["x"] + c["width"] for c in member_cards) + 24
+                    max_y = max(c["y"] + c.get("height", 200) for c in member_cards) + 24
+                    sec_x = min_x
+                    sec_y = min_y
+                    sec_w = max(sec_w, max_x - min_x)
+                    sec_h = max(sec_h, max_y - min_y)
+
             fa_sections.append({
                 "id": fa_sec_id,
                 "name": hs.get("title", "分区"),
-                "x": round(hs.get("x", 0), 2),
-                "y": round(hs.get("y", 0), 2),
-                "width": round(hs.get("width", 600), 0),
-                "height": round(hs.get("height", 400), 0),
+                "x": sec_x,
+                "y": sec_y,
+                "width": sec_w,
+                "height": sec_h,
                 "color": color,
                 "cardIds": member_fa_ids,
             })
