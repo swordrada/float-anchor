@@ -351,7 +351,6 @@ export default function CanvasView() {
     }
 
     const noteCard = (e.target as HTMLElement).closest('.note-card')
-    const sectionBox = (e.target as HTMLElement).closest('.section-box')
 
     if (noteCard) {
       const cardId = noteCard.getAttribute('data-card-id')
@@ -422,45 +421,49 @@ export default function CanvasView() {
           },
         ],
       })
-    } else if (sectionBox) {
-      const secId = sectionBox.getAttribute('data-section-id')
-      if (!secId) return
-      setCtxMenu({
-        x: e.clientX,
-        y: e.clientY,
-        items: [
-          {
-            label: '分区最佳大小',
-            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>,
-            onClick: () => compactSection(secId),
-          },
-        ],
-      })
     } else {
       const coords = toCanvasCoords(e.clientX, e.clientY)
-      setCtxMenu({
-        x: e.clientX,
-        y: e.clientY,
-        items: [
-          {
-            label: '创建空白卡片',
-            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="3" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" /></svg>,
-            onClick: () => addCard(coords.x, coords.y),
-          },
-          {
-            label: '创建标题',
-            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 4v16M18 4v16M6 12h12" /></svg>,
-            onClick: () => addLabel(coords.x, coords.y),
-          },
-          {
-            label: '创建分区',
-            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" strokeDasharray="4 2" /></svg>,
-            onClick: () => addSection(coords.x, coords.y),
-          },
-        ],
-      })
+      const hitSection = sections.find((sec) =>
+        coords.x >= sec.x && coords.x <= sec.x + sec.width &&
+        coords.y >= sec.y && coords.y <= sec.y + sec.height
+      )
+      if (hitSection) {
+        setCtxMenu({
+          x: e.clientX,
+          y: e.clientY,
+          items: [
+            {
+              label: '分区最佳大小',
+              icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>,
+              onClick: () => compactSection(hitSection.id),
+            },
+          ],
+        })
+      } else {
+        setCtxMenu({
+          x: e.clientX,
+          y: e.clientY,
+          items: [
+            {
+              label: '创建空白卡片',
+              icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="3" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" /></svg>,
+              onClick: () => addCard(coords.x, coords.y),
+            },
+            {
+              label: '创建标题',
+              icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 4v16M18 4v16M6 12h12" /></svg>,
+              onClick: () => addLabel(coords.x, coords.y),
+            },
+            {
+              label: '创建分区',
+              icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" strokeDasharray="4 2" /></svg>,
+              onClick: () => addSection(coords.x, coords.y),
+            },
+          ],
+        })
+      }
     }
-  }, [cards, addCard, addLabel, addSection, deleteCard, setEditingCard, updateCard, toCanvasCoords, connectingFrom, compactSection])
+  }, [cards, sections, addCard, addLabel, addSection, deleteCard, setEditingCard, updateCard, toCanvasCoords, connectingFrom, compactSection])
 
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {

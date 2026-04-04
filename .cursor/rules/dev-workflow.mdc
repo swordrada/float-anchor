@@ -26,7 +26,16 @@ alwaysApply: true
 - **只有测试通过后**，才能执行打包（`npm run build:mac` 等）和推送。
 - 禁止跳过测试直接打包发版。
 
-## 4. 自动推送
+## 4. CSS 与 DOM 事件一致性检查
+
+> 此规则源于一次真实 bug：给 `.section-box` 添加了 `closest()` 右键检测，但 `.section-box` 的 CSS 设置了 `pointer-events: none`，导致事件永远不会冒泡到该元素，`closest()` 永远返回 null。仅靠"代码编译通过 + 应用能启动"并未发现此问题。
+
+- **在通过 DOM 查询（`closest()`、`matches()`、`querySelector()` 等）检测用户交互目标时，必须同步检查目标元素及其祖先链的 CSS 是否存在 `pointer-events: none`**。如果存在，DOM 事件不会到达该元素，查询将永远失败。
+- 遇到 `pointer-events: none` 的元素，应改用**几何坐标命中检测**（将点击坐标转为画布坐标后与元素边界框比较），而非依赖 DOM 事件冒泡。
+- 更一般地：**新增任何依赖 DOM 事件传播的逻辑时，必须审查完整的 CSS 事件链**（`pointer-events`、`visibility`、`display`、`opacity: 0` + 无尺寸等可能阻断事件的属性），确认事件能从 `e.target` 正确冒泡到预期祖先。
+- 这类问题的根本原因是：**编写交互逻辑时只考虑了 DOM 结构（HTML），忽略了 CSS 对事件传播的实际影响**。DOM 树上"存在"的元素，如果 CSS 阻断了事件，在运行时等于"不存在"。
+
+## 5. 自动推送
 
 - 每次优化、升级、修复完成后，**自动 git add + commit + push** 到远端仓库，无需等待用户确认。
 - commit message 要简洁清晰，描述本次改动的核心内容。
