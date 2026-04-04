@@ -22,7 +22,10 @@ FA_TITLE_LINE_HEIGHT = 28
 FA_BODY_LINE_HEIGHT = 20
 FA_HEADER_PADDING = 24 + 8   # drag-handle(24) + card-header padding-top(8)
 FA_BODY_PADDING = 8 + 14     # card-content padding top(8) + bottom(14)
-FA_CHARS_PER_LINE = 14       # ~14 CJK chars per 240px at 13px font
+FA_CHARS_PER_LINE = 24       # ~24 CJK chars per 373px at 14px font
+
+HEPTA_CARD_WIDTH = 520       # Heptabase default card width
+COORD_SCALE = FA_DEFAULT_WIDTH / HEPTA_CARD_WIDTH
 
 SECTION_COLORS = ['#9ca3af', '#60a5fa', '#34d399', '#fb923c', '#f472b6']
 
@@ -279,34 +282,47 @@ def cards_overlap(a, b):
 
 
 def fix_overlaps(cards: list) -> list:
-    """Greedy sweep: place cards in y-order, push each one down past all prior cards."""
+    """Compact magnetic layout: cluster into columns, ensure FA_GAP spacing, stack tightly."""
     if len(cards) <= 1:
         return cards
 
-    cards.sort(key=lambda c: (c["y"], c["x"]))
+    cards.sort(key=lambda c: (c["x"], c["y"]))
+    col_threshold = FA_DEFAULT_WIDTH * 0.6
 
-    placed = []
+    # 1) Cluster cards into columns by x proximity
+    columns: list[list] = []
     for card in cards:
-        cw = card["width"]
-        ch = card.get("height", 200)
-
-        for _attempt in range(len(placed) + 1):
-            collision = False
-            for p in placed:
-                pw = p["width"]
-                ph = p.get("height", 200)
-                if (card["x"] < p["x"] + pw + FA_GAP and
-                    card["x"] + cw + FA_GAP > p["x"] and
-                    card["y"] < p["y"] + ph + FA_GAP and
-                    card["y"] + ch + FA_GAP > p["y"]):
-                    card["y"] = round(p["y"] + ph + FA_GAP, 2)
-                    collision = True
-            if not collision:
+        placed_in_col = False
+        for col in columns:
+            if abs(card["x"] - col[0]["x"]) < col_threshold:
+                col.append(card)
+                placed_in_col = True
                 break
+        if not placed_in_col:
+            columns.append([card])
 
-        placed.append(card)
+    # 2) Reassign column x positions: preserve relative order, ensure FA_GAP between columns
+    columns.sort(key=lambda col: col[0]["x"])
+    for ci, col in enumerate(columns):
+        if ci == 0:
+            col_x = col[0]["x"]
+        else:
+            prev_right = columns[ci-1][0]["x"] + FA_DEFAULT_WIDTH
+            desired_x = col[0]["x"]
+            col_x = max(desired_x, prev_right + FA_GAP)
+        for card in col:
+            card["x"] = round(col_x, 2)
 
-    return placed
+    # 3) For each column, keep relative y order and compact tightly
+    global_top = min(c["y"] for c in cards)
+    for col in columns:
+        col.sort(key=lambda c: c["y"])
+        cursor_y = global_top
+        for card in col:
+            card["y"] = round(cursor_y, 2)
+            cursor_y += card.get("height", 200) + FA_GAP
+
+    return [c for col in columns for c in col]
 
 
 def default_output_path() -> str:
@@ -419,7 +435,7 @@ def main():
                 "id": fa_card_id,
                 "title": title,
                 "content": body,
-                "x": round(ci.get("x", 0), 2),
+                "x": round(ci.get("x", 0) * COORD_SCALE, 2),
                 "y": round(ci.get("y", 0), 2),
                 "width": FA_DEFAULT_WIDTH,
                 "height": est_height,
@@ -442,9 +458,9 @@ def main():
 
             color = HEPTABASE_COLOR_MAP.get(hs.get("color", ""), '#9ca3af')
 
-            sec_x = round(hs.get("x", 0), 2)
+            sec_x = round(hs.get("x", 0) * COORD_SCALE, 2)
             sec_y = round(hs.get("y", 0), 2)
-            sec_w = round(hs.get("width", 600), 0)
+            sec_w = round(hs.get("width", 600) * COORD_SCALE, 0)
             sec_h = round(hs.get("height", 400), 0)
 
             if member_fa_ids:
@@ -499,9 +515,9 @@ def main():
                 "id": str(uuid.uuid4()),
                 "text": label_text,
                 "level": level,
-                "x": round(te.get("x", 0), 2),
+                "x": round(te.get("x", 0) * COORD_SCALE, 2),
                 "y": round(te.get("y", 0), 2),
-                "width": round(te.get("width", 300), 0),
+                "width": round(te.get("width", 300) * COORD_SCALE, 0),
             })
 
         fa_connections = []
