@@ -137,9 +137,14 @@ def tiptap_to_markdown(node, depth=0) -> str:
         return "---"
 
     if ntype == "image":
-        src = attrs.get("src", "")
-        alt = attrs.get("alt", "")
-        return f"![{alt}]({src})"
+        src = attrs.get("src") or ""
+        alt = attrs.get("alt") or ""
+        file_id = attrs.get("fileId") or ""
+        if not src and file_id:
+            src = f"https://app.heptabase.com/api/files/{file_id}"
+        if src:
+            return f"![{alt}]({src})"
+        return ""
 
     if ntype == "taskList":
         lines = []
@@ -242,7 +247,14 @@ def estimate_card_height(title: str, content: str, width: int = FA_DEFAULT_WIDTH
                 body_lines += 1
                 continue
             if stripped.startswith("!["):
-                body_lines += 10
+                img_h_px = 180
+                match = re.search(r'api/files/([a-f0-9-]+)', stripped)
+                if match and match.group(1) in file_metadata:
+                    fm = file_metadata[match.group(1)]
+                    if fm["width"] > 0:
+                        content_w = width - 36
+                        img_h_px = int(fm["height"] * content_w / fm["width"])
+                body_lines += max(2, img_h_px // FA_BODY_LINE_HEIGHT)
                 continue
             if stripped.startswith("#"):
                 body_lines += 2
@@ -307,7 +319,10 @@ def default_output_path() -> str:
     return os.path.join(base, "float-anchor.json")
 
 
+file_metadata = {}
+
 def main():
+    global file_metadata
     if len(sys.argv) < 2:
         print("Usage: python3 scripts/migrate-heptabase.py <heptabase-backup-dir> [--output <path>]")
         sys.exit(1)
@@ -330,6 +345,15 @@ def main():
 
     md_library = load_card_library_md(os.path.join(backup_root, "Card Library"))
     print(f"Loaded {len(md_library)} card markdown files from Card Library")
+
+    for f_entry in data.get("files", []):
+        meta = f_entry.get("metadata") or {}
+        file_metadata[f_entry["id"]] = {
+            "width": meta.get("width", 0),
+            "height": meta.get("height", 0),
+            "type": f_entry.get("type", ""),
+        }
+    print(f"Loaded {len(file_metadata)} file metadata entries")
 
     card_map = {c["id"]: c for c in data["cardList"]}
 
