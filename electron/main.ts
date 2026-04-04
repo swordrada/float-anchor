@@ -437,6 +437,23 @@ ipcMain.handle('webdav-startup-sync', async (_event, config: { server: string; u
       fs.writeFileSync(file, JSON.stringify(remoteData, null, 2), 'utf-8')
       return { success: true, action: 'downloaded', data: remoteData }
     }
+
+    if (remoteTs === localTs && remoteTs === 0) {
+      const remoteCardCount = (remoteData.canvases || []).reduce((sum: number, c: any) => sum + (c.cards?.length || 0), 0)
+      let localCardCount = 0
+      if (fs.existsSync(file)) {
+        try {
+          const localData = JSON.parse(fs.readFileSync(file, 'utf-8'))
+          localCardCount = (localData.canvases || []).reduce((sum: number, c: any) => sum + (c.cards?.length || 0), 0)
+        } catch {}
+      }
+      if (remoteCardCount > localCardCount) {
+        createBackup()
+        fs.writeFileSync(file, JSON.stringify(remoteData, null, 2), 'utf-8')
+        return { success: true, action: 'downloaded', data: remoteData }
+      }
+    }
+
     return { success: true, action: 'up-to-date' }
   } catch (err) {
     return { success: false, error: String(err) }

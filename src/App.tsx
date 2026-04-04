@@ -10,22 +10,23 @@ export default function App() {
   const [platform, setPlatform] = useState<string>('darwin')
 
   useEffect(() => {
-    loadSettings().then(() => {
-      loadData().then(() => {
-        const { settings } = useStore.getState()
-        if (settings.webdav?.server) {
+    loadSettings().then(async () => {
+      const { settings } = useStore.getState()
+      if (settings.webdav?.server) {
+        try {
           useStore.getState().setSyncStatus('syncing')
-          window.electronAPI.webdavStartupSync(settings.webdav).then((res) => {
-            if (res.success && res.action === 'downloaded' && res.data) {
-              useStore.setState({
-                canvases: res.data.canvases,
-                activeCanvasId: res.data.activeCanvasId ?? useStore.getState().activeCanvasId,
-              })
-            }
-            useStore.getState().setSyncStatus(res.success ? 'idle' : 'error')
-          }).catch(() => useStore.getState().setSyncStatus('error'))
+          const res = await window.electronAPI.webdavStartupSync(settings.webdav)
+          if (res.success && res.action === 'downloaded' && res.data) {
+            await loadData()
+            useStore.getState().setSyncStatus('idle')
+            return
+          }
+          useStore.getState().setSyncStatus(res.success ? 'idle' : 'error')
+        } catch {
+          useStore.getState().setSyncStatus('error')
         }
-      })
+      }
+      await loadData()
     })
     window.electronAPI.getPlatform().then(setPlatform)
   }, [])
