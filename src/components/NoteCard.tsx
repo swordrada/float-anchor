@@ -1,6 +1,7 @@
 import React, { useRef, useState, useCallback, useEffect, useMemo } from 'react'
 import ReactMarkdown, { Components, defaultUrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import rehypeRaw from 'rehype-raw'
 import { useStore, useCardById, useIsEditing, useCardActions } from '../store'
 import RichEditor from './RichEditor'
 
@@ -253,7 +254,7 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight }: Prop
   const renderedContent = useMemo(() => {
     if (!card?.content) return null
     return (
-      <ReactMarkdown remarkPlugins={remarkPlugins} components={mdComponents} urlTransform={faUrlTransform}>
+      <ReactMarkdown remarkPlugins={remarkPlugins} rehypePlugins={[rehypeRaw]} components={mdComponents} urlTransform={faUrlTransform}>
         {card.content}
       </ReactMarkdown>
     )
