@@ -1217,18 +1217,17 @@ input {
 
 .section-resize-handle {
   position: absolute;
-  bottom: 2px;
-  right: 2px;
-  width: 16px;
-  height: 16px;
-  cursor: nwse-resize;
-  display: flex;
-  align-items: flex-end;
-  justify-content: flex-end;
+  width: 14px;
+  height: 14px;
   opacity: 0;
   transition: opacity 0.15s;
   pointer-events: auto;
 }
+
+.section-resize-br { bottom: 0; right: 0; cursor: nwse-resize; }
+.section-resize-tl { top: 0; left: 0; cursor: nwse-resize; }
+.section-resize-tr { top: 0; right: 0; cursor: nesw-resize; }
+.section-resize-bl { bottom: 0; left: 0; cursor: nesw-resize; }
 
 .section-box:hover .section-resize-handle {
   opacity: 1;

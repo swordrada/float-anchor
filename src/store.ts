@@ -74,11 +74,28 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const data = await window.electronAPI.readData()
       if (data && data.canvases.length > 0) {
+        let needsPersist = false
+        const cleaned = data.canvases.map((canvas) => {
+          const sections = canvas.sections
+          if (!sections || sections.length < 2) return canvas
+          const claimed = new Set<string>()
+          const fixed = sections.map((sec) => {
+            const ids = sec.cardIds ?? []
+            const deduped = ids.filter((id) => {
+              if (claimed.has(id)) { needsPersist = true; return false }
+              claimed.add(id)
+              return true
+            })
+            return deduped.length !== ids.length ? { ...sec, cardIds: deduped } : sec
+          })
+          return { ...canvas, sections: fixed }
+        })
         set({
-          canvases: data.canvases,
-          activeCanvasId: data.activeCanvasId ?? data.canvases[0].id,
+          canvases: cleaned,
+          activeCanvasId: data.activeCanvasId ?? cleaned[0].id,
           loaded: true,
         })
+        if (needsPersist) get().persist()
         return
       }
     } catch { /* ignore */ }
@@ -295,8 +312,31 @@ export const useStore = create<AppState>((set, get) => ({
         if (inside && !wasMember) {
           return { ...sec, cardIds: [...members, cardId] }
         }
+        if (!inside && wasMember) {
+          return { ...sec, cardIds: members.filter((id) => id !== cardId) }
+        }
         return sec
       })
+
+      const belongsTo = updatedSections.filter((sec) => (sec.cardIds ?? []).includes(cardId))
+      if (belongsTo.length > 1) {
+        let bestSection: Section | null = null
+        let bestOverlap = -1
+        const cw = movedCard.width
+        const ch = movedCard.height ?? 200
+        for (const sec of belongsTo) {
+          const ox = Math.max(0, Math.min(movedCard.x + cw, sec.x + sec.width) - Math.max(movedCard.x, sec.x))
+          const oy = Math.max(0, Math.min(movedCard.y + ch, sec.y + sec.height) - Math.max(movedCard.y, sec.y))
+          const overlap = ox * oy
+          if (overlap > bestOverlap) { bestOverlap = overlap; bestSection = sec }
+        }
+        updatedSections = updatedSections.map((sec) => {
+          if (sec === bestSection) return sec
+          const ids = sec.cardIds ?? []
+          if (!ids.includes(cardId)) return sec
+          return { ...sec, cardIds: ids.filter((id) => id !== cardId) }
+        })
+      }
     }
 
     set((s) => ({
@@ -384,7 +424,7 @@ export const useStore = create<AppState>((set, get) => ({
       if (isMember) {
         if (isFullyInside(card, sec)) return sec
         changed = true
-        return expandToFit(sec, members)
+        return { ...sec, cardIds: members.filter((id) => id !== cardId) }
       }
 
       if (!snappedToMemberOf(card, sec)) return sec
@@ -393,9 +433,30 @@ export const useStore = create<AppState>((set, get) => ({
     })
 
     if (!changed) return
+
+    const final = updatedSections
+    const belongsTo = final.filter((sec) => (sec.cardIds ?? []).includes(cardId))
+    let dedupedSections = final
+    if (belongsTo.length > 1) {
+      let bestSection: Section | null = null
+      let bestOverlap = -1
+      const cw = card.width; const ch = card.height ?? 200
+      for (const sec of belongsTo) {
+        const ox = Math.max(0, Math.min(card.x + cw, sec.x + sec.width) - Math.max(card.x, sec.x))
+        const oy = Math.max(0, Math.min(card.y + ch, sec.y + sec.height) - Math.max(card.y, sec.y))
+        if (ox * oy > bestOverlap) { bestOverlap = ox * oy; bestSection = sec }
+      }
+      dedupedSections = final.map((sec) => {
+        if (sec === bestSection) return sec
+        const ids = sec.cardIds ?? []
+        if (!ids.includes(cardId)) return sec
+        return { ...sec, cardIds: ids.filter((id) => id !== cardId) }
+      })
+    }
+
     set((s) => ({
       canvases: s.canvases.map((c) =>
-        c.id === activeCanvasId ? { ...c, sections: updatedSections } : c,
+        c.id === activeCanvasId ? { ...c, sections: dedupedSections } : c,
       ),
     }))
     get().persist()

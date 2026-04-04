@@ -89,34 +89,87 @@ const SectionBox = React.memo(function SectionBox({ section, scale }: Props) {
     document.addEventListener('mouseup', onUp)
   }, [isEditing, section.id, scale, moveSection])
 
-  const handleResizeStart = useCallback((e: React.MouseEvent) => {
+  const handleResizeStart = useCallback((e: React.MouseEvent, corner: 'br' | 'bl' | 'tr' | 'tl') => {
     if (e.button !== 0) return
     e.stopPropagation()
     e.preventDefault()
     setIsResizing(true)
     const sx = e.clientX
     const sy = e.clientY
+    const ox = section.x
+    const oy = section.y
     const ow = section.width
     const oh = section.height
     const s = scale
     let raf = 0
+
+    const getMinBounds = () => {
+      const memberIds = new Set(section.cardIds ?? [])
+      const cards = getCanvasCards()
+      let cMinX = Infinity, cMinY = Infinity, cMaxX = -Infinity, cMaxY = -Infinity
+      let hasCards = false
+      for (const card of cards) {
+        if (!memberIds.has(card.id)) continue
+        hasCards = true
+        cMinX = Math.min(cMinX, card.x)
+        cMinY = Math.min(cMinY, card.y)
+        cMaxX = Math.max(cMaxX, card.x + card.width)
+        cMaxY = Math.max(cMaxY, card.y + (card.height ?? 200))
+      }
+      if (!hasCards) return null
+      return { cMinX, cMinY, cMaxX, cMaxY }
+    }
+
     const onMove = (ev: MouseEvent) => {
       cancelAnimationFrame(raf)
       raf = requestAnimationFrame(() => {
-        const memberIds = new Set(section.cardIds ?? [])
-        const cards = getCanvasCards()
-        let minW = 200
-        let minH = 120
-        for (const card of cards) {
-          if (!memberIds.has(card.id)) continue
-          const rightEdge = (card.x + card.width) - section.x + SECTION_PAD
-          const bottomEdge = (card.y + (card.height ?? 200)) - section.y + SECTION_PAD
-          minW = Math.max(minW, rightEdge)
-          minH = Math.max(minH, bottomEdge)
+        const dx = (ev.clientX - sx) / s
+        const dy = (ev.clientY - sy) / s
+        const bounds = getMinBounds()
+
+        let nx = ox, ny = oy, nw = ow, nh = oh
+
+        if (corner === 'br') {
+          nw = ow + dx; nh = oh + dy
+        } else if (corner === 'bl') {
+          nx = ox + dx; nw = ow - dx; nh = oh + dy
+        } else if (corner === 'tr') {
+          ny = oy + dy; nw = ow + dx; nh = oh - dy
+        } else {
+          nx = ox + dx; ny = oy + dy; nw = ow - dx; nh = oh - dy
         }
-        const nw = Math.max(minW, ow + (ev.clientX - sx) / s)
-        const nh = Math.max(minH, oh + (ev.clientY - sy) / s)
-        updateSection(section.id, { width: nw, height: nh })
+
+        nw = Math.max(200, nw)
+        nh = Math.max(120, nh)
+
+        if (bounds) {
+          const maxLeft = bounds.cMinX - SECTION_PAD
+          const maxTop = bounds.cMinY - SECTION_PAD - HEADER_H
+          const minRight = bounds.cMaxX + SECTION_PAD
+          const minBottom = bounds.cMaxY + SECTION_PAD
+
+          if (corner === 'tl' || corner === 'bl') {
+            if (nx > maxLeft) { nw += (nx - maxLeft); nx = maxLeft }
+          }
+          if (corner === 'tl' || corner === 'tr') {
+            if (ny > maxTop) { nh += (ny - maxTop); ny = maxTop }
+          }
+          if (corner === 'br' || corner === 'tr') {
+            if (nx + nw < minRight) nw = minRight - nx
+          }
+          if (corner === 'br' || corner === 'bl') {
+            if (ny + nh < minBottom) nh = minBottom - ny
+          }
+        }
+
+        if (corner === 'bl' || corner === 'tl') {
+          if (nw < 200) { nx = ox + ow - 200; nw = 200 }
+        }
+        if (corner === 'tl' || corner === 'tr') {
+          if (nh < 120) { ny = oy + oh - 120; nh = 120 }
+        }
+
+        updateSection(section.id, { x: nx, y: ny, width: nw, height: nh })
       })
     }
     const onUp = () => {
@@ -127,7 +180,7 @@ const SectionBox = React.memo(function SectionBox({ section, scale }: Props) {
     }
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
-  }, [section.id, section.width, section.height, section.cardIds, section.x, section.y, scale, updateSection])
+  }, [section.id, section.x, section.y, section.width, section.height, section.cardIds, scale, updateSection])
 
   const borderColor = section.color + '80'
   const bgColor = section.color + '18'
@@ -183,13 +236,10 @@ const SectionBox = React.memo(function SectionBox({ section, scale }: Props) {
         )}
       </div>
 
-      <div className="section-resize-handle" onMouseDown={handleResizeStart}>
-        <svg width="10" height="10" viewBox="0 0 10 10">
-          <line x1="9" y1="1" x2="1" y2="9" stroke={section.color} strokeWidth="1" opacity="0.5" />
-          <line x1="9" y1="4" x2="4" y2="9" stroke={section.color} strokeWidth="1" opacity="0.5" />
-          <line x1="9" y1="7" x2="7" y2="9" stroke={section.color} strokeWidth="1" opacity="0.5" />
-        </svg>
-      </div>
+      <div className="section-resize-handle section-resize-br" onMouseDown={(e) => handleResizeStart(e, 'br')} />
+      <div className="section-resize-handle section-resize-tl" onMouseDown={(e) => handleResizeStart(e, 'tl')} />
+      <div className="section-resize-handle section-resize-tr" onMouseDown={(e) => handleResizeStart(e, 'tr')} />
+      <div className="section-resize-handle section-resize-bl" onMouseDown={(e) => handleResizeStart(e, 'bl')} />
     </div>
   )
 })
