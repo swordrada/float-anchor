@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useStore } from './store'
 import Sidebar from './components/Sidebar'
-import CanvasView from './components/CanvasView'
+import MainPane from './components/MainPane'
 import SettingsModal from './components/SettingsModal'
 import type { WebDAVConfig, WebDAVSyncResult } from './types'
 
@@ -69,6 +69,12 @@ export default function App() {
       if (options?.openSettingsOnDecision) {
         store.setShowSettings(true)
       }
+      return
+    }
+
+    if (res.action === 'dismissed') {
+      store.setSyncDecision(null)
+      store.setSyncStatus('idle')
       return
     }
 
@@ -148,6 +154,17 @@ export default function App() {
     }
   }, [])
 
+  useEffect(() => {
+    const unsubscribe = window.electronAPI.onTrackReminderOpen(({ trackId }) => {
+      const store = useStore.getState()
+      store.setSelectedTrackId(trackId)
+      store.setTrackViewMode('detail')
+    })
+    return () => {
+      unsubscribe()
+    }
+  }, [])
+
   if (!loaded) {
     return (
       <div className="app-loading">
@@ -196,7 +213,7 @@ export default function App() {
       <div className="app-body">
         <Sidebar width={sidebarWidth} />
         <div className="sidebar-resize-handle" onMouseDown={onResizeStart} />
-        <CanvasView />
+        <MainPane />
       </div>
       {showSettings && <SettingsModal />}
     </div>

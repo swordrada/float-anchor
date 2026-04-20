@@ -1,10 +1,13 @@
-import { app, BrowserWindow, ipcMain, shell, protocol, net, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, protocol, net, dialog, Menu, Notification, Tray, nativeImage } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
 import { exec } from 'node:child_process'
 import archiver from 'archiver'
 import AdmZip from 'adm-zip'
+import { createDefaultUIState, createEmptyJournalData, createEmptyTrackSystemData, normalizeAppData, normalizeAppSettings } from '../src/lib/appModel'
+import { toDateKey } from '../src/lib/dateUtils'
+import { getTrackReminderCandidates } from '../src/lib/trackUtils'
 
 let dataDir = ''
 let dataFile = ''
@@ -20,6 +23,11 @@ function getDataPaths() {
 }
 
 let mainWindow: BrowserWindow | null = null
+let tray: Tray | null = null
+let isQuitting = false
+let reminderTimer: ReturnType<typeof setInterval> | null = null
+let pendingReminderPayload: { trackId: string; date: string } | null = null
+const lastReminderMap = new Map<string, number>()
 
 const GITHUB_OWNER = 'swordrada'
 const GITHUB_REPO = 'float-anchor'
@@ -296,14 +304,142 @@ ipcMain.handle('cancel-update', async () => {
 })
 
 function getThemeFromSettings(): 'light' | 'dark' {
+  return readStoredSettings().theme
+}
+
+function shouldKeepRunningInBackground() {
+  const settings = readStoredSettings()
+  return settings.notifications.enabled && settings.notifications.runInBackground
+}
+
+function getTrayIcon() {
+  const iconPath = process.platform === 'win32'
+    ? path.join(__dirname, '../build/icon.png')
+    : path.join(__dirname, '../build/icon.png')
+  const image = nativeImage.createFromPath(iconPath)
+  return image.isEmpty() ? undefined : image.resize({ width: 18, height: 18 })
+}
+
+function sendReminderPayload(payload: { trackId: string; date: string }) {
+  pendingReminderPayload = payload
+  const send = () => {
+    if (!mainWindow || mainWindow.isDestroyed()) return
+    mainWindow.webContents.send('track-reminder-open', payload)
+    pendingReminderPayload = null
+  }
+
+  if (mainWindow && !mainWindow.webContents.isLoading()) {
+    send()
+    return
+  }
+
+  mainWindow?.webContents.once('did-finish-load', send)
+}
+
+function showMainWindow(payload?: { trackId: string; date: string }) {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    if (payload) pendingReminderPayload = payload
+    createWindow()
+    return
+  }
+
+  if (process.platform === 'darwin') {
+    app.dock.show()
+  }
+  mainWindow.show()
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.focus()
+  if (payload) sendReminderPayload(payload)
+}
+
+function ensureTray() {
+  if (tray) return tray
+  const icon = getTrayIcon()
+  if (!icon) return null
+
+  tray = new Tray(icon)
+  tray.setToolTip('FloatAnchor')
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: '显示 FloatAnchor',
+      click: () => showMainWindow(),
+    },
+    {
+      label: '退出',
+      click: () => {
+        isQuitting = true
+        tray?.destroy()
+        tray = null
+        app.quit()
+      },
+    },
+  ])
+  tray.setContextMenu(contextMenu)
+  tray.on('click', () => showMainWindow())
+  return tray
+}
+
+function isInQuietHours(start: string, end: string, now: Date) {
+  const [startHour, startMinute] = start.split(':').map(Number)
+  const [endHour, endMinute] = end.split(':').map(Number)
+  const startTotal = (startHour || 0) * 60 + (startMinute || 0)
+  const endTotal = (endHour || 0) * 60 + (endMinute || 0)
+  const currentTotal = now.getHours() * 60 + now.getMinutes()
+  if (startTotal === endTotal) return false
+  if (startTotal < endTotal) {
+    return currentTotal >= startTotal && currentTotal < endTotal
+  }
+  return currentTotal >= startTotal || currentTotal < endTotal
+}
+
+function runTrackReminderScan() {
   try {
-    const { settingsFile: file } = getDataPaths()
-    if (fs.existsSync(file)) {
-      const s = JSON.parse(fs.readFileSync(file, 'utf-8'))
-      if (s.theme === 'dark') return 'dark'
+    const settings = readStoredSettings()
+    if (!settings.notifications.enabled) return
+    if (
+      settings.notifications.quietHours.enabled &&
+      isInQuietHours(settings.notifications.quietHours.start, settings.notifications.quietHours.end, new Date())
+    ) {
+      return
     }
-  } catch {}
-  return 'light'
+
+    const appData = readStoredAppData()
+    const today = toDateKey(new Date())
+    const candidates = getTrackReminderCandidates(appData, today).slice(0, 3)
+    const now = Date.now()
+
+    for (const candidate of candidates) {
+      const dedupeKey = `${candidate.trackId}:${candidate.date}`
+      const last = lastReminderMap.get(dedupeKey)
+      if (last && now - last < 90 * 60 * 1000) continue
+      lastReminderMap.set(dedupeKey, now)
+
+      if (!Notification.isSupported()) continue
+      const notification = new Notification({
+        title: candidate.summary,
+        body: candidate.detail,
+        silent: false,
+      })
+      notification.on('click', () => {
+        showMainWindow({ trackId: candidate.trackId, date: candidate.date })
+      })
+      notification.show()
+    }
+
+    for (const [key, timestamp] of lastReminderMap.entries()) {
+      if (now - timestamp > 24 * 60 * 60 * 1000) {
+        lastReminderMap.delete(key)
+      }
+    }
+  } catch (err) {
+    console.error('Track reminder scan failed:', err)
+  }
+}
+
+function ensureReminderTimer() {
+  if (reminderTimer) clearInterval(reminderTimer)
+  reminderTimer = setInterval(runTrackReminderScan, 60_000)
+  runTrackReminderScan()
 }
 
 function createWindow() {
@@ -350,9 +486,33 @@ function createWindow() {
     }
   })
 
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (pendingReminderPayload) {
+      sendReminderPayload(pendingReminderPayload)
+    }
+  })
+
   mainWindow.on('ready-to-show', () => {
+    if (process.platform === 'darwin') {
+      app.dock.show()
+    }
     mainWindow?.maximize()
     mainWindow?.show()
+  })
+
+  mainWindow.on('close', (event) => {
+    if (isQuitting) return
+    if (!shouldKeepRunningInBackground()) return
+    event.preventDefault()
+    ensureTray()
+    if (process.platform === 'darwin') {
+      app.dock.hide()
+    }
+    mainWindow?.hide()
+  })
+
+  mainWindow.on('closed', () => {
+    mainWindow = null
   })
 
   if (process.env.VITE_DEV_SERVER_URL) {
@@ -369,40 +529,67 @@ function ensureDataDir() {
   }
 }
 
-ipcMain.handle('read-data', async () => {
+function getDefaultAppData() {
+  return normalizeAppData({
+    canvases: [],
+    activeCanvasId: null,
+    mainView: 'boards',
+    journal: createEmptyJournalData(),
+    trackSystem: createEmptyTrackSystemData(),
+    uiState: createDefaultUIState(),
+  })
+}
+
+function readStoredSettings() {
+  try {
+    const { settingsFile: file } = getDataPaths()
+    ensureDataDir()
+    if (fs.existsSync(file)) {
+      return normalizeAppSettings(JSON.parse(fs.readFileSync(file, 'utf-8')))
+    }
+  } catch (err) {
+    console.error('Failed to read settings:', err)
+  }
+  return normalizeAppSettings(null)
+}
+
+function readStoredAppData() {
   try {
     const { dataFile: file } = getDataPaths()
     ensureDataDir()
     if (fs.existsSync(file)) {
-      const raw = fs.readFileSync(file, 'utf-8')
-      return JSON.parse(raw)
+      return normalizeAppData(JSON.parse(fs.readFileSync(file, 'utf-8')))
     }
   } catch (err) {
     console.error('Failed to read data:', err)
   }
-  return null
+  return getDefaultAppData()
+}
+
+ipcMain.handle('read-data', async () => {
+  try {
+    return readStoredAppData()
+  } catch (err) {
+    console.error('Failed to read data:', err)
+  }
+  return getDefaultAppData()
 })
 
 ipcMain.handle('write-data', async (_event, data: unknown) => {
   try {
     const { dataFile: file } = getDataPaths()
     ensureDataDir()
-    const dataToWrite = (data && typeof data === 'object' && !Array.isArray(data))
-      ? { ...(data as Record<string, unknown>) }
-      : data
+    const normalizedData = normalizeAppData(data)
+    const dataToWrite = { ...normalizedData } as Record<string, unknown>
 
     if (
-      dataToWrite &&
-      typeof dataToWrite === 'object' &&
-      !Array.isArray(dataToWrite) &&
-      typeof (dataToWrite as Record<string, unknown>)._syncTimestamp !== 'number' &&
+      typeof dataToWrite._syncTimestamp !== 'number' &&
       fs.existsSync(file)
     ) {
       try {
-        const writableData = dataToWrite as Record<string, unknown>
         const existing = JSON.parse(fs.readFileSync(file, 'utf-8'))
         if (typeof existing?._syncTimestamp === 'number') {
-          writableData._syncTimestamp = existing._syncTimestamp
+          dataToWrite._syncTimestamp = existing._syncTimestamp
         }
       } catch {}
     }
@@ -417,22 +604,30 @@ ipcMain.handle('write-data', async (_event, data: unknown) => {
 
 ipcMain.handle('read-settings', async () => {
   try {
-    const { settingsFile: file } = getDataPaths()
-    ensureDataDir()
-    if (fs.existsSync(file)) {
-      return JSON.parse(fs.readFileSync(file, 'utf-8'))
-    }
+    return readStoredSettings()
   } catch (err) {
     console.error('Failed to read settings:', err)
   }
-  return null
+  return normalizeAppSettings(null)
 })
 
 ipcMain.handle('write-settings', async (_event, data: unknown) => {
   try {
     const { settingsFile: file } = getDataPaths()
     ensureDataDir()
-    fs.writeFileSync(file, JSON.stringify(data, null, 2), 'utf-8')
+    const normalized = normalizeAppSettings(data)
+    fs.writeFileSync(file, JSON.stringify(normalized, null, 2), 'utf-8')
+    try {
+      app.setLoginItemSettings({ openAtLogin: normalized.notifications.launchAtLogin })
+    } catch (err) {
+      console.error('Failed to apply login item settings:', err)
+    }
+    if (normalized.notifications.enabled && normalized.notifications.runInBackground) {
+      ensureTray()
+    } else if (tray && mainWindow?.isVisible()) {
+      tray.destroy()
+      tray = null
+    }
     return true
   } catch (err) {
     console.error('Failed to write settings:', err)
@@ -591,11 +786,18 @@ async function uploadLocalImages(client: any) {
   if (imageFiles.length === 0) return 0
 
   await ensureRemoteDirectory(client, WEBDAV_REMOTE_IMAGES_DIR)
+
+  const remoteFiles = await getRemoteImageFiles(client)
+  const remoteNames = new Set(remoteFiles.map((f: any) => f.basename || ''))
+
+  let uploaded = 0
   for (const fileName of imageFiles) {
+    if (remoteNames.has(fileName)) continue
     const filePath = path.join(imagesDir, fileName)
     await client.putFileContents(`${WEBDAV_REMOTE_IMAGES_DIR}/${fileName}`, fs.readFileSync(filePath), { overwrite: true })
+    uploaded += 1
   }
-  return imageFiles.length
+  return uploaded
 }
 
 async function getRemoteImageFiles(client: any) {
@@ -628,23 +830,31 @@ async function downloadRemoteImages(client: any) {
 
 function getReferencedImageNames(data: any) {
   const referenced = new Set<string>()
+  const scanMarkdown = (content: string) => {
+    for (const match of content.matchAll(/fa-img:\/\/([^\s)]+)/g)) {
+      const imageName = extractStoredImageName(`fa-img://${match[1]}`)
+      if (imageName) referenced.add(imageName)
+    }
+    for (const match of content.matchAll(/!\[[^\]]*]\(([^)]+)\)/g)) {
+      const imageName = extractStoredImageName(match[1])
+      if (imageName) referenced.add(imageName)
+    }
+    for (const match of content.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)) {
+      const imageName = extractStoredImageName(match[1])
+      if (imageName) referenced.add(imageName)
+    }
+  }
 
   for (const canvas of data?.canvases || []) {
     for (const card of canvas.cards || []) {
       const content = typeof card.content === 'string' ? card.content : ''
-      for (const match of content.matchAll(/fa-img:\/\/([^\s)]+)/g)) {
-        const imageName = extractStoredImageName(`fa-img://${match[1]}`)
-        if (imageName) referenced.add(imageName)
-      }
-      for (const match of content.matchAll(/!\[[^\]]*]\(([^)]+)\)/g)) {
-        const imageName = extractStoredImageName(match[1])
-        if (imageName) referenced.add(imageName)
-      }
-      for (const match of content.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)) {
-        const imageName = extractStoredImageName(match[1])
-        if (imageName) referenced.add(imageName)
-      }
+      scanMarkdown(content)
     }
+  }
+
+  for (const entry of Object.values(data?.journal?.entriesByDate || {})) {
+    const content = typeof (entry as any)?.content === 'string' ? (entry as any).content : ''
+    scanMarkdown(content)
   }
 
   return referenced
@@ -705,16 +915,18 @@ interface SyncSummary {
   labelCount: number
   sectionCount: number
   connectionCount: number
+  journalEntryCount: number
+  trackCount: number
+  trackCheckinCount: number
   totalEntityCount: number
 }
 
-type SyncResolution = 'keep-local' | 'use-remote'
+type SyncResolution = 'keep-local' | 'use-remote' | 'dismiss'
 
 function normalizeSyncData(data: any, fallbackSyncTimestamp = 0) {
+  const normalized = normalizeAppData(data)
   return {
-    ...(data && typeof data === 'object' && !Array.isArray(data) ? data : {}),
-    canvases: Array.isArray(data?.canvases) ? data.canvases : [],
-    activeCanvasId: data?.activeCanvasId ?? null,
+    ...normalized,
     _syncTimestamp: typeof data?._syncTimestamp === 'number' ? data._syncTimestamp : fallbackSyncTimestamp,
   }
 }
@@ -726,13 +938,19 @@ function summarizeSyncData(data: any): SyncSummary {
   const labelCount = canvases.reduce((sum: number, canvas: any) => sum + (canvas.labels?.length || 0), 0)
   const sectionCount = canvases.reduce((sum: number, canvas: any) => sum + (canvas.sections?.length || 0), 0)
   const connectionCount = canvases.reduce((sum: number, canvas: any) => sum + (canvas.connections?.length || 0), 0)
+  const journalEntryCount = Object.keys(normalized.journal?.entriesByDate || {}).length
+  const trackCount = normalized.trackSystem?.tracks?.length || 0
+  const trackCheckinCount = normalized.trackSystem?.checkins?.length || 0
   return {
     canvasCount: canvases.length,
     cardCount,
     labelCount,
     sectionCount,
     connectionCount,
-    totalEntityCount: cardCount + labelCount + sectionCount + connectionCount,
+    journalEntryCount,
+    trackCount,
+    trackCheckinCount,
+    totalEntityCount: cardCount + labelCount + sectionCount + connectionCount + journalEntryCount + trackCount + trackCheckinCount,
   }
 }
 
@@ -743,13 +961,18 @@ function hasMeaningfulSyncData(summary: SyncSummary) {
 function getComparableSyncSnapshot(data: any) {
   const normalized = normalizeSyncData(data)
   return JSON.stringify({
+    schemaVersion: normalized.schemaVersion,
     canvases: normalized.canvases,
     activeCanvasId: normalized.activeCanvasId,
+    mainView: normalized.mainView,
+    journal: normalized.journal,
+    trackSystem: normalized.trackSystem,
+    uiState: normalized.uiState,
   })
 }
 
 function formatSyncSummary(summary: SyncSummary) {
-  return `${summary.canvasCount} 个画布、${summary.cardCount} 张卡片、${summary.labelCount} 个标题、${summary.sectionCount} 个分区、${summary.connectionCount} 条连线`
+  return `${summary.canvasCount} 个画布、${summary.cardCount} 张卡片、${summary.labelCount} 个标题、${summary.sectionCount} 个分区、${summary.connectionCount} 条连线、${summary.journalEntryCount} 篇每日记、${summary.trackCount} 条星轨、${summary.trackCheckinCount} 条打卡`
 }
 
 function isHighRiskRemoteOverwrite(localSummary: SyncSummary, remoteSummary: SyncSummary) {
@@ -764,7 +987,7 @@ function isHighRiskRemoteOverwrite(localSummary: SyncSummary, remoteSummary: Syn
 function buildSyncDecision(
   localData: any,
   remoteData: any,
-  reason: 'remote-newer' | 'diverged' | 'destructive-remote',
+  reason: 'remote-newer' | 'diverged' | 'destructive-remote' | 'remote-missing',
 ) {
   const normalizedLocal = normalizeSyncData(localData)
   const normalizedRemote = normalizeSyncData(remoteData)
@@ -773,10 +996,11 @@ function buildSyncDecision(
   const highRisk = reason === 'destructive-remote' || isHighRiskRemoteOverwrite(localSummary, remoteSummary)
 
   let message = `检测到云端与本地数据不同步，当前仍会优先保留本地显示。请确认是保留本地上传，还是使用云端覆盖本地。`
-  if (reason === 'remote-newer' && !highRisk) {
+  if (reason === 'remote-missing') {
+    message = `检测到云端没有数据（可能已被删除或从未同步过），本地有 ${formatSyncSummary(localSummary)}。请确认是否将本地数据上传到云端，或者暂时忽略。`
+  } else if (reason === 'remote-newer' && !highRisk) {
     message = `检测到云端有更新，本地仍会优先显示。请确认是否使用云端数据更新本地内容。`
-  }
-  if (highRisk) {
+  } else if (highRisk) {
     message = `云端数据会把本地数据从 ${formatSyncSummary(localSummary)} 变成 ${formatSyncSummary(remoteSummary)}。这是高危操作，请确认是否继续使用云端数据覆盖本地。`
   }
 
@@ -867,8 +1091,12 @@ async function reconcileWebDAVState(config: { server: string; username: string; 
   const remoteData = await loadRemoteSnapshot(client)
   if (!remoteData) {
     if (hasLocalFile && localData && hasMeaningfulSyncData(localSummary)) {
-      await uploadLocalSnapshot(client, file)
-      return { success: true, action: 'uploaded' as const }
+      const emptyRemote = normalizeSyncData(null)
+      return {
+        success: true,
+        action: 'needs-confirmation' as const,
+        decision: buildSyncDecision(localData, emptyRemote, 'remote-missing'),
+      }
     }
     return { success: true, action: 'up-to-date' as const }
   }
@@ -896,6 +1124,13 @@ async function reconcileWebDAVState(config: { server: string; username: string; 
   }
 
   if (localDirty) {
+    if (hasMeaningfulSyncData(localSummary) && !hasMeaningfulSyncData(remoteSummary)) {
+      return {
+        success: true,
+        action: 'needs-confirmation' as const,
+        decision: buildSyncDecision(localData, remoteData, 'remote-missing'),
+      }
+    }
     if (remoteTs > localTs + LOCAL_SYNC_DIRTY_TOLERANCE_MS) {
       return {
         success: true,
@@ -908,6 +1143,13 @@ async function reconcileWebDAVState(config: { server: string; username: string; 
   }
 
   if (localTs > remoteTs + LOCAL_SYNC_DIRTY_TOLERANCE_MS && hasLocalFile) {
+    if (hasMeaningfulSyncData(localSummary) && !hasMeaningfulSyncData(remoteSummary)) {
+      return {
+        success: true,
+        action: 'needs-confirmation' as const,
+        decision: buildSyncDecision(localData, remoteData, 'remote-missing'),
+      }
+    }
     await uploadLocalSnapshot(client, file)
     return { success: true, action: 'uploaded' as const }
   }
@@ -934,8 +1176,11 @@ async function reconcileWebDAVState(config: { server: string; username: string; 
   }
 
   if (hasMeaningfulSyncData(localSummary) && !hasMeaningfulSyncData(remoteSummary) && hasLocalFile) {
-    await uploadLocalSnapshot(client, file)
-    return { success: true, action: 'uploaded' as const }
+    return {
+      success: true,
+      action: 'needs-confirmation' as const,
+      decision: buildSyncDecision(localData, remoteData, 'remote-missing'),
+    }
   }
 
   return {
@@ -953,6 +1198,10 @@ async function resolveWebDAVConflict(
   config: { server: string; username: string; password: string },
   resolution: SyncResolution,
 ) {
+  if (resolution === 'dismiss') {
+    return { success: true, action: 'dismissed' as const }
+  }
+
   const { dataFile: file } = getDataPaths()
   ensureDataDir()
   const client = await getWebDAVClient(config)
@@ -1170,6 +1419,19 @@ async function ensureRecentBackupForClear() {
   }
 }
 
+function buildCardsClearedData() {
+  const existingData = readStoredAppData()
+  return normalizeAppData({
+    ...existingData,
+    canvases: [],
+    activeCanvasId: null,
+    uiState: {
+      ...existingData.uiState,
+      boardViewMode: 'overview',
+    },
+  })
+}
+
 ipcMain.handle('get-backup-dir', () => getBackupDir())
 
 ipcMain.handle('export-backup', async () => {
@@ -1196,21 +1458,12 @@ ipcMain.handle('import-backup', async () => {
     }
 
     const importedRaw = zip.readAsText(dataEntry)
-    const importedData = JSON.parse(importedRaw)
-
-    if (!importedData.canvases || !Array.isArray(importedData.canvases)) {
-      return { success: false, error: '无效的备份文件：数据格式不正确' }
-    }
+    const importedData = normalizeAppData(JSON.parse(importedRaw))
 
     const { dataFile: file, dataDir: dir } = getDataPaths()
     ensureDataDir()
 
-    let existingData: any = { canvases: [], activeCanvasId: null }
-    if (fs.existsSync(file)) {
-      try {
-        existingData = JSON.parse(fs.readFileSync(file, 'utf-8'))
-      } catch {}
-    }
+    const existingData = readStoredAppData()
 
     const existingCanvasMap = new Map<string, any>()
     for (const c of existingData.canvases || []) {
@@ -1249,10 +1502,36 @@ ipcMain.handle('import-backup', async () => {
       }
     }
 
-    const mergedData = {
+    const mergeById = <T extends { id: string }>(existingItems: T[], incomingItems: T[]) => {
+      const map = new Map<string, T>()
+      for (const item of existingItems) map.set(item.id, item)
+      for (const item of incomingItems) map.set(item.id, item)
+      return Array.from(map.values())
+    }
+
+    const mergedData = normalizeAppData({
+      schemaVersion: importedData.schemaVersion,
       canvases: Array.from(existingCanvasMap.values()),
       activeCanvasId: importedData.activeCanvasId || existingData.activeCanvasId,
-    }
+      mainView: importedData.mainView || existingData.mainView,
+      journal: {
+        entriesByDate: {
+          ...existingData.journal.entriesByDate,
+          ...importedData.journal.entriesByDate,
+        },
+      },
+      trackSystem: {
+        tracks: mergeById(existingData.trackSystem.tracks, importedData.trackSystem.tracks),
+        revisions: mergeById(existingData.trackSystem.revisions, importedData.trackSystem.revisions),
+        checkins: mergeById(existingData.trackSystem.checkins, importedData.trackSystem.checkins),
+      },
+      uiState: {
+        ...existingData.uiState,
+        ...importedData.uiState,
+        selectedTrackId: importedData.uiState.selectedTrackId || existingData.uiState.selectedTrackId,
+      },
+      _syncTimestamp: importedData._syncTimestamp ?? existingData._syncTimestamp,
+    })
 
     fs.writeFileSync(file, JSON.stringify(mergedData, null, 2), 'utf-8')
 
@@ -1282,16 +1561,16 @@ ipcMain.handle('check-backup-exists', async () => {
   }
 })
 
-ipcMain.handle('prepare-clear-all-data', async () => {
+ipcMain.handle('prepare-clear-all-cards', async () => {
   try {
     return await ensureRecentBackupForClear()
   } catch (err) {
-    console.error('Prepare clear all data failed:', err)
+    console.error('Prepare clear all cards failed:', err)
     return { success: false, error: String(err) }
   }
 })
 
-ipcMain.handle('clear-all-data', async () => {
+ipcMain.handle('clear-all-cards', async () => {
   try {
     const backupRes = await ensureRecentBackupForClear()
     if (!backupRes.success) {
@@ -1299,15 +1578,12 @@ ipcMain.handle('clear-all-data', async () => {
     }
 
     const { dataFile: file } = getDataPaths()
-    const emptyData = {
-      canvases: [],
-      activeCanvasId: null,
-    }
+    const clearedData = buildCardsClearedData()
     ensureDataDir()
-    fs.writeFileSync(file, JSON.stringify(emptyData, null, 2), 'utf-8')
-    return { success: true, data: emptyData }
+    fs.writeFileSync(file, JSON.stringify(clearedData, null, 2), 'utf-8')
+    return { success: true, data: clearedData }
   } catch (err) {
-    console.error('Clear all data failed:', err)
+    console.error('Clear all cards failed:', err)
     return { success: false, error: String(err) }
   }
 })
@@ -1367,11 +1643,27 @@ app.whenReady().then(() => {
   })
 
   createWindow()
+  ensureReminderTimer()
+  if (shouldKeepRunningInBackground()) {
+    ensureTray()
+  }
+  try {
+    app.setLoginItemSettings({ openAtLogin: readStoredSettings().notifications.launchAtLogin })
+  } catch (err) {
+    console.error('Failed to initialize login item settings:', err)
+  }
   startUpdateChecker()
 })
 
+app.on('before-quit', () => {
+  isQuitting = true
+  if (reminderTimer) clearInterval(reminderTimer)
+  tray?.destroy()
+  tray = null
+})
+
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
+  if (!shouldKeepRunningInBackground() && process.platform !== 'darwin') {
     app.quit()
     mainWindow = null
   }
@@ -1380,5 +1672,7 @@ app.on('window-all-closed', () => {
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow()
+  } else {
+    showMainWindow()
   }
 })

@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
-import { useStore } from '../store'
+import { useMainView, useSortedJournalEntries, useStore, useTrackSystem, useTracks, useUIState } from '../store'
 import { shallow } from 'zustand/shallow'
+import { clampText, formatDateTitle, getTodayDateKey, stripMarkdown } from '../lib/dateUtils'
+import { getTrackDashboard, getTrackDayStatus } from '../lib/trackUtils'
+import StarTrackLogo from './tracks/StarTrackLogo'
 
 function UpdateBanner() {
   const [updateInfo, setUpdateInfo] = useState<{ version: string; downloadUrl: string; assetName: string } | null>(null)
@@ -107,14 +110,25 @@ function UpdateBanner() {
 }
 
 export default function Sidebar({ width }: { width?: number }) {
-  const { activeCanvasId, setActiveCanvas, addCanvas, deleteCanvas, renameCanvas } =
+  const mainView = useMainView()
+  const uiState = useUIState()
+  const today = getTodayDateKey()
+  const journalEntries = useSortedJournalEntries()
+  const tracks = useTracks()
+  const trackSystem = useTrackSystem()
+  const { activeCanvasId, openCanvasDetail, openBoardOverview, addCanvas, deleteCanvas, renameCanvas, setMainView, setJournalSelectedDate, setSelectedTrackId, setTrackViewMode } =
     useStore(
       (s) => ({
         activeCanvasId: s.activeCanvasId,
-        setActiveCanvas: s.setActiveCanvas,
+        openCanvasDetail: s.openCanvasDetail,
+        openBoardOverview: s.openBoardOverview,
         addCanvas: s.addCanvas,
         deleteCanvas: s.deleteCanvas,
         renameCanvas: s.renameCanvas,
+        setMainView: s.setMainView,
+        setJournalSelectedDate: s.setJournalSelectedDate,
+        setSelectedTrackId: s.setSelectedTrackId,
+        setTrackViewMode: s.setTrackViewMode,
       }),
       shallow,
     )
@@ -156,9 +170,10 @@ export default function Sidebar({ width }: { width?: number }) {
     setRenameText('')
   }
 
-  const handleDelete = (e: React.MouseEvent, id: string) => {
+  const handleDelete = (e: React.MouseEvent, id: string, name: string) => {
     e.stopPropagation()
     if (canvases.length <= 1) return
+    if (!window.confirm(`确定删除白板「${name}」吗？`)) return
     deleteCanvas(id)
   }
 
@@ -166,6 +181,9 @@ export default function Sidebar({ width }: { width?: number }) {
     setRenamingId(id)
     setRenameText(name)
   }
+
+  const activeTracks = useMemo(() => tracks.filter((track) => track.status === 'active'), [tracks])
+  const archivedTracks = useMemo(() => tracks.filter((track) => track.status === 'archived'), [tracks])
 
   return (
     <aside className="sidebar" style={width ? { width } : undefined}>
@@ -191,103 +209,255 @@ export default function Sidebar({ width }: { width?: number }) {
         </button>
       </div>
 
-      <nav className="canvas-list">
-        {canvases.map((c) => (
-          <div
-            key={c.id}
-            className={`canvas-item ${c.id === activeCanvasId ? 'active' : ''}`}
-            onClick={() => setActiveCanvas(c.id)}
-            onDoubleClick={() => handleDoubleClick(c.id, c.name)}
-          >
-            {renamingId === c.id ? (
-              <input
-                ref={renameInputRef}
-                className="canvas-rename-input"
-                value={renameText}
-                onChange={(e) => setRenameText(e.target.value)}
-                onBlur={handleRenameSubmit}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleRenameSubmit()
-                  if (e.key === 'Escape') {
-                    setRenamingId(null)
-                    setRenameText('')
-                  }
-                }}
-                onClick={(e) => e.stopPropagation()}
-              />
-            ) : (
-              <>
-                <svg className="canvas-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                  <rect x="2" y="2" width="20" height="20" rx="3" />
-                  <line x1="7" y1="8" x2="17" y2="8" />
-                  <line x1="7" y1="12" x2="13" y2="12" />
-                </svg>
-                <span className="canvas-name">{c.name}</span>
-                <span className="canvas-count">{c.cardCount}</span>
-                <button
-                  className="canvas-edit"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleDoubleClick(c.id, c.name)
-                  }}
-                  title="重命名画布"
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
-                  </svg>
-                </button>
-                {canvases.length > 1 && (
-                  <button
-                    className="canvas-delete"
-                    onClick={(e) => handleDelete(e, c.id)}
-                    title="删除画布"
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <line x1="18" y1="6" x2="6" y2="18" />
-                      <line x1="6" y1="6" x2="18" y2="18" />
+      <div className="sidebar-mode-nav">
+        <button
+          className={`sidebar-mode-featured ${mainView === 'tracks' ? 'active' : ''}`}
+          onClick={() => setMainView('tracks')}
+        >
+          <div className="sidebar-mode-button-main">
+            <StarTrackLogo variant="nav" subtle={mainView !== 'tracks'} />
+            <span>星轨</span>
+          </div>
+          <span className="sidebar-mode-badge new">NEW</span>
+        </button>
+        <button className={mainView === 'journal' ? 'active' : ''} onClick={() => setMainView('journal')}>每日记</button>
+        <button className={mainView === 'boards' ? 'active' : ''} onClick={() => openBoardOverview()}>笔记白板</button>
+      </div>
+
+      {mainView === 'boards' ? (
+        <>
+          <nav className="canvas-list">
+            <div
+              className={`canvas-item ${uiState.boardViewMode === 'overview' ? 'active' : ''}`}
+              onClick={() => openBoardOverview()}
+            >
+              <svg className="canvas-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="3" width="7" height="7" rx="1.5" />
+                <rect x="14" y="3" width="7" height="7" rx="1.5" />
+                <rect x="3" y="14" width="7" height="7" rx="1.5" />
+                <rect x="14" y="14" width="7" height="7" rx="1.5" />
+              </svg>
+              <span className="canvas-name">全部白板</span>
+            </div>
+            {canvases.map((c) => (
+              <div
+                key={c.id}
+                className={`canvas-item ${c.id === activeCanvasId && uiState.boardViewMode === 'canvas' ? 'active' : ''}`}
+                onClick={() => openCanvasDetail(c.id)}
+                onDoubleClick={() => handleDoubleClick(c.id, c.name)}
+              >
+                {renamingId === c.id ? (
+                  <input
+                    ref={renameInputRef}
+                    className="canvas-rename-input"
+                    value={renameText}
+                    onChange={(e) => setRenameText(e.target.value)}
+                    onBlur={handleRenameSubmit}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleRenameSubmit()
+                      if (e.key === 'Escape') {
+                        setRenamingId(null)
+                        setRenameText('')
+                      }
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  />
+                ) : (
+                  <>
+                    <svg className="canvas-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="2" y="2" width="20" height="20" rx="3" />
+                      <line x1="7" y1="8" x2="17" y2="8" />
+                      <line x1="7" y1="12" x2="13" y2="12" />
                     </svg>
-                  </button>
+                    <span className="canvas-name">{c.name}</span>
+                    <span className="canvas-count">{c.cardCount}</span>
+                    <button
+                      className="canvas-edit"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleDoubleClick(c.id, c.name)
+                      }}
+                      title="重命名画布"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+                      </svg>
+                    </button>
+                    {canvases.length > 1 && (
+                      <button
+                        className="canvas-delete"
+                        onClick={(e) => handleDelete(e, c.id, c.name)}
+                        title="删除画布"
+                      >
+                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <line x1="18" y1="6" x2="6" y2="18" />
+                          <line x1="6" y1="6" x2="18" y2="18" />
+                        </svg>
+                      </button>
+                    )}
+                  </>
                 )}
-              </>
+              </div>
+            ))}
+          </nav>
+
+          <UpdateBanner />
+
+          <div className="sidebar-footer">
+            {isAdding ? (
+              <div className="add-canvas-form">
+                <input
+                  ref={addInputRef}
+                  className="add-canvas-input"
+                  placeholder="输入画布名称..."
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  onBlur={handleAddSubmit}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleAddSubmit()
+                    if (e.key === 'Escape') {
+                      setNewName('')
+                      setIsAdding(false)
+                    }
+                  }}
+                />
+              </div>
+            ) : (
+              <button className="add-canvas-btn" onClick={() => setIsAdding(true)}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+                <span>新建画布</span>
+              </button>
             )}
           </div>
-        ))}
-      </nav>
+        </>
+      ) : mainView === 'journal' ? (
+        <>
+          <div className="sidebar-subtitle">近期每日记</div>
+          <nav className="canvas-list">
+            <div
+              className={`canvas-item ${uiState.journalSelectedDate === today ? 'active' : ''}`}
+              onClick={() => setJournalSelectedDate(today)}
+            >
+              <svg className="canvas-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="4" width="18" height="18" rx="2" />
+                <line x1="16" y1="2" x2="16" y2="6" />
+                <line x1="8" y1="2" x2="8" y2="6" />
+                <line x1="3" y1="10" x2="21" y2="10" />
+              </svg>
+              <span className="canvas-name">今天</span>
+            </div>
+            {journalEntries.length === 0 ? (
+              <div className="sidebar-empty-note">还没有每日记，先从今天开始。</div>
+            ) : (
+              journalEntries.map((entry) => (
+                <div
+                  key={entry.date}
+                  className={`canvas-item ${uiState.journalSelectedDate === entry.date ? 'active' : ''}`}
+                  onClick={() => setJournalSelectedDate(entry.date)}
+                >
+                  <svg className="canvas-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M6 2h9l5 5v15a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z" />
+                    <polyline points="14 2 14 8 20 8" />
+                  </svg>
+                  <div className="sidebar-rich-item">
+                    <span className="canvas-name">{entry.customTitle || formatDateTitle(entry.date)}</span>
+                    <small>{clampText(stripMarkdown(entry.content), 38) || entry.date}</small>
+                  </div>
+                </div>
+              ))
+            )}
+          </nav>
 
-      <UpdateBanner />
+          <UpdateBanner />
 
-      <div className="sidebar-footer">
-        {isAdding ? (
-          <div className="add-canvas-form">
-            <input
-              ref={addInputRef}
-              className="add-canvas-input"
-              placeholder="输入画布名称..."
-              value={newName}
-              onChange={(e) => setNewName(e.target.value)}
-              onBlur={handleAddSubmit}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') handleAddSubmit()
-                if (e.key === 'Escape') {
-                  setNewName('')
-                  setIsAdding(false)
-                }
-              }}
-            />
+          <div className="sidebar-footer">
+            <button className="add-canvas-btn" onClick={() => setJournalSelectedDate(today)}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <path d="M8 2v4M16 2v4M3 10h18" />
+                <rect x="3" y="4" width="18" height="18" rx="2" />
+              </svg>
+              <span>打开今天</span>
+            </button>
           </div>
-        ) : (
-          <button
-            className="add-canvas-btn"
-            onClick={() => setIsAdding(true)}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            <span>新建画布</span>
-          </button>
-        )}
-      </div>
+        </>
+      ) : (
+        <>
+          <div className="sidebar-subtitle">当前星轨</div>
+          <nav className="canvas-list">
+            <div
+              className={`canvas-item ${uiState.trackViewMode === 'overview' ? 'active' : ''}`}
+              onClick={() => {
+                setSelectedTrackId(null)
+                setTrackViewMode('overview')
+              }}
+            >
+              <svg className="canvas-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path d="M7 15l3-3 2 2 5-5" />
+              </svg>
+              <span className="canvas-name">星轨总览</span>
+            </div>
+            {activeTracks.map((track) => (
+              (() => {
+                const dashboard = getTrackDashboard(track, today)
+                const status = getTrackDayStatus(trackSystem, track, today)
+                return (
+                  <div
+                    key={track.id}
+                    className={`canvas-item ${uiState.selectedTrackId === track.id ? 'active' : ''}`}
+                    onClick={() => setSelectedTrackId(track.id)}
+                  >
+                    <span className="track-dot" style={{ background: track.color }} />
+                    <div className="sidebar-rich-item">
+                      <span className="canvas-name">{track.title}</span>
+                      <small>
+                        {status.isOnTrack ? '在轨' : '有风险'}
+                        {dashboard.nextMilestone ? ` · 下一阶段：${dashboard.nextMilestone.title}` : ' · 阶段成果已达成'}
+                      </small>
+                    </div>
+                  </div>
+                )
+              })()
+            ))}
+            {archivedTracks.length > 0 && (
+              <div className="sidebar-subsection-label">已归档</div>
+            )}
+            {archivedTracks.map((track) => (
+              <div key={track.id} className="canvas-item" onClick={() => setSelectedTrackId(track.id)}>
+                <span className="track-dot archived" style={{ background: track.color }} />
+                <div className="sidebar-rich-item">
+                  <span className="canvas-name">{track.title}</span>
+                  <small>已归档</small>
+                </div>
+              </div>
+            ))}
+            {tracks.length === 0 && (
+              <div className="sidebar-empty-note">还没有星轨，去右侧创建第一条结构化人生主线。</div>
+            )}
+          </nav>
+
+          <UpdateBanner />
+
+          <div className="sidebar-footer">
+            <button
+              className="add-canvas-btn"
+              onClick={() => {
+                setSelectedTrackId(null)
+                setTrackViewMode('overview')
+              }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <path d="M7 15l3-3 2 2 5-5" />
+              </svg>
+              <span>查看总览</span>
+            </button>
+          </div>
+        </>
+      )}
     </aside>
   )
 }

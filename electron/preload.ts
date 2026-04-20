@@ -31,7 +31,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   webdavAutoSync: (config: any) => ipcRenderer.invoke('webdav-auto-sync', config),
   webdavStartupSync: (config: any) => ipcRenderer.invoke('webdav-startup-sync', config),
   webdavPeriodicSync: (config: any) => ipcRenderer.invoke('webdav-periodic-sync', config),
-  webdavResolveConflict: (config: any, resolution: 'keep-local' | 'use-remote') =>
+  webdavResolveConflict: (config: any, resolution: 'keep-local' | 'use-remote' | 'dismiss') =>
     ipcRenderer.invoke('webdav-resolve-conflict', config, resolution),
   onSyncStatus: (cb: (status: any) => void) => {
     ipcRenderer.on('sync-status', (_e, status) => cb(status))
@@ -39,7 +39,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   exportBackup: () => ipcRenderer.invoke('export-backup'),
   importBackup: () => ipcRenderer.invoke('import-backup'),
   checkBackupExists: () => ipcRenderer.invoke('check-backup-exists'),
-  prepareClearAllData: () => ipcRenderer.invoke('prepare-clear-all-data'),
-  clearAllData: () => ipcRenderer.invoke('clear-all-data'),
+  prepareClearAllCards: () => ipcRenderer.invoke('prepare-clear-all-cards'),
+  clearAllCards: () => ipcRenderer.invoke('clear-all-cards'),
   getBackupDir: () => ipcRenderer.invoke('get-backup-dir'),
+  onTrackReminderOpen: (cb: (payload: { trackId: string; date: string }) => void) => {
+    const handler = (_e: unknown, payload: { trackId: string; date: string }) => cb(payload)
+    ipcRenderer.on('track-reminder-open', handler)
+    return () => { ipcRenderer.removeListener('track-reminder-open', handler) }
+  },
 })

@@ -1,11 +1,43 @@
 import { create } from 'zustand'
 import { shallow } from 'zustand/shallow'
 import { v4 as uuid } from 'uuid'
-import type { Canvas, Card, CanvasLabel, Section, Connection, CanvasViewport, AppSettings, WebDAVConfig, WebDAVSyncDecision } from './types'
+import { APP_DATA_SCHEMA_VERSION, createDefaultUIState, createEmptyJournalData, createEmptyTrackSystemData, getDefaultAppSettings, normalizeAppData, normalizeAppSettings } from './lib/appModel'
+import { getCurrentMonthKey, getTodayDateKey } from './lib/dateUtils'
+import type {
+  AppData,
+  AppSettings,
+  BoardViewMode,
+  Canvas,
+  CanvasLabel,
+  CanvasViewport,
+  Card,
+  Connection,
+  JournalData,
+  JournalEntry,
+  JournalViewMode,
+  MainView,
+  NotificationSettings,
+  Section,
+  Track,
+  TrackAction,
+  TrackCheckin,
+  TrackDuration,
+  TrackMilestone,
+  TrackReportPeriod,
+  TrackSystemData,
+  TrackViewMode,
+  UIState,
+  WebDAVConfig,
+  WebDAVSyncDecision,
+} from './types'
 
 interface AppState {
   canvases: Canvas[]
   activeCanvasId: string | null
+  mainView: MainView
+  journal: JournalData
+  trackSystem: TrackSystemData
+  uiState: UIState
   editingCardId: string | null
   highlightCardId: string | null
   loaded: boolean
@@ -25,6 +57,56 @@ interface AppState {
   setSyncStatus: (s: 'idle' | 'syncing' | 'success' | 'error' | 'warning') => void
   setSyncDecision: (decision: WebDAVSyncDecision | null) => void
   refreshImageCache: () => void
+  setMainView: (view: MainView) => void
+  setBoardViewMode: (mode: BoardViewMode) => void
+  openCanvasDetail: (id: string) => void
+  openBoardOverview: () => void
+  setJournalViewMode: (mode: JournalViewMode) => void
+  setJournalSelectedDate: (date: string) => void
+  setJournalCalendarMonth: (month: string) => void
+  upsertJournalEntry: (date: string, patch: Partial<Pick<JournalEntry, 'customTitle' | 'content'>>) => void
+  setTrackViewMode: (mode: TrackViewMode) => void
+  setTrackReportPeriod: (period: TrackReportPeriod) => void
+  setSelectedTrackId: (trackId: string | null) => void
+  saveTrack: (payload: {
+    trackId?: string
+    title: string
+    summary: string
+    startDate: string
+    duration: TrackDuration
+    color: string
+    milestones: TrackMilestone[]
+    actions: TrackAction[]
+  }) => string
+  deleteTrack: (trackId: string) => void
+  archiveTrack: (trackId: string) => void
+  restoreTrack: (trackId: string) => void
+  toggleTrackMilestone: (payload: {
+    trackId: string
+    milestoneId: string
+    achieved: boolean
+    date?: string
+  }) => void
+  addTrackActionEntry: (payload: {
+    trackId: string
+    actionId: string
+    date: string
+    completedAt?: number
+    note?: string
+  }) => void
+  removeTrackActionEntry: (payload: {
+    trackId: string
+    actionId: string
+    date: string
+    entryId: string
+  }) => void
+  setTrackActionCount: (payload: {
+    trackId: string
+    actionId: string
+    date: string
+    count: number
+    note?: string
+  }) => void
 
   addCanvas: (name: string) => void
   deleteCanvas: (id: string) => void
@@ -65,13 +147,33 @@ let syncTimer: ReturnType<typeof setTimeout> | undefined
 const SECTION_COLORS = ['#9ca3af', '#60a5fa', '#34d399', '#fb923c', '#f472b6']
 const LOCAL_WEBDAV_SYNC_DELAY_MS = 2000
 
+function createInitialCanvas(): Canvas {
+  return { id: uuid(), name: '默认画布', cards: [] }
+}
+
+export function buildAppDataSnapshot(state: Pick<AppState, 'canvases' | 'activeCanvasId' | 'mainView' | 'journal' | 'trackSystem' | 'uiState'>): AppData {
+  return {
+    schemaVersion: APP_DATA_SCHEMA_VERSION,
+    canvases: state.canvases,
+    activeCanvasId: state.activeCanvasId,
+    mainView: state.mainView,
+    journal: state.journal,
+    trackSystem: state.trackSystem,
+    uiState: state.uiState,
+  }
+}
+
 export const useStore = create<AppState>((set, get) => ({
   canvases: [],
   activeCanvasId: null,
+  mainView: 'boards',
+  journal: createEmptyJournalData(),
+  trackSystem: createEmptyTrackSystemData(),
+  uiState: createDefaultUIState(),
   editingCardId: null,
   highlightCardId: null,
   loaded: false,
-  settings: { theme: 'light' },
+  settings: getDefaultAppSettings(),
   syncStatus: 'idle',
   syncDecision: null,
   imageCacheVersion: 0,
@@ -79,44 +181,76 @@ export const useStore = create<AppState>((set, get) => ({
 
   loadData: async () => {
     try {
-      const data = await window.electronAPI.readData()
-      if (data && data.canvases.length > 0) {
-        let needsPersist = false
-        const cleaned = data.canvases.map((canvas) => {
-          const sections = canvas.sections
-          if (!sections || sections.length < 2) return canvas
-          const claimed = new Set<string>()
-          const fixed = sections.map((sec) => {
-            const ids = sec.cardIds ?? []
-            const deduped = ids.filter((id) => {
-              if (claimed.has(id)) { needsPersist = true; return false }
-              claimed.add(id)
-              return true
-            })
-            return deduped.length !== ids.length ? { ...sec, cardIds: deduped } : sec
+      const normalized = normalizeAppData(await window.electronAPI.readData())
+      let needsPersist = false
+      const cleaned = normalized.canvases.map((canvas) => {
+        const sections = canvas.sections
+        if (!sections || sections.length < 2) return canvas
+        const claimed = new Set<string>()
+        const fixed = sections.map((sec) => {
+          const ids = sec.cardIds ?? []
+          const deduped = ids.filter((id) => {
+            if (claimed.has(id)) {
+              needsPersist = true
+              return false
+            }
+            claimed.add(id)
+            return true
           })
-          return { ...canvas, sections: fixed }
+          return deduped.length !== ids.length ? { ...sec, cardIds: deduped } : sec
         })
-        set({
-          canvases: cleaned,
-          activeCanvasId: data.activeCanvasId ?? cleaned[0].id,
-          loaded: true,
-        })
-        if (needsPersist) get().persist()
-        return
-      }
+        return { ...canvas, sections: fixed }
+      })
+
+      const canvases = cleaned.length > 0 ? cleaned : [createInitialCanvas()]
+      if (cleaned.length === 0) needsPersist = true
+      const activeCanvasId = canvases.some((canvas) => canvas.id === normalized.activeCanvasId)
+        ? normalized.activeCanvasId
+        : canvases[0].id
+      const selectedTrackId = normalized.uiState.selectedTrackId
+      const safeSelectedTrackId = normalized.trackSystem.tracks.some((track) => track.id === selectedTrackId)
+        ? selectedTrackId
+        : null
+      if (selectedTrackId !== safeSelectedTrackId) needsPersist = true
+
+      set({
+        canvases,
+        activeCanvasId,
+        mainView: normalized.mainView,
+        journal: normalized.journal,
+        trackSystem: normalized.trackSystem,
+        uiState: {
+          ...normalized.uiState,
+          journalSelectedDate: normalized.uiState.journalSelectedDate || getTodayDateKey(),
+          journalCalendarMonth: normalized.uiState.journalCalendarMonth || getCurrentMonthKey(),
+          selectedTrackId: safeSelectedTrackId,
+        },
+        loaded: true,
+      })
+
+      if (needsPersist) get().persist()
+      return
     } catch { /* ignore */ }
 
-    const first: Canvas = { id: uuid(), name: '默认画布', cards: [] }
-    set({ canvases: [first], activeCanvasId: first.id, loaded: true })
+    const first = createInitialCanvas()
+    set({
+      canvases: [first],
+      activeCanvasId: first.id,
+      mainView: 'boards',
+      journal: createEmptyJournalData(),
+      trackSystem: createEmptyTrackSystemData(),
+      uiState: createDefaultUIState(),
+      loaded: true,
+    })
     get().persist()
   },
 
   persist: () => {
     clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
-      const { canvases, activeCanvasId, settings, syncDecision } = get()
-      void window.electronAPI.writeData({ canvases, activeCanvasId }).then((saved) => {
+      const { settings, syncDecision } = get()
+      const snapshot = buildAppDataSnapshot(get())
+      void window.electronAPI.writeData(snapshot).then((saved) => {
         if (!saved) return
         if (settings.webdav?.server && !syncDecision) {
           clearTimeout(syncTimer)
@@ -133,6 +267,10 @@ export const useStore = create<AppState>((set, get) => ({
                   syncDecision: res.decision,
                   showSettings: true,
                 })
+                return
+              }
+              if (res.action === 'dismissed') {
+                set({ syncStatus: 'idle', syncDecision: null })
                 return
               }
               if (res.success && res.action === 'downloaded' && res.data) {
@@ -156,18 +294,17 @@ export const useStore = create<AppState>((set, get) => ({
 
   loadSettings: async () => {
     try {
-      const s = await window.electronAPI.readSettings()
-      if (s) {
-        set({ settings: s })
-        document.documentElement.dataset.theme = s.theme
-      }
+      const settings = normalizeAppSettings(await window.electronAPI.readSettings())
+      set({ settings })
+      document.documentElement.dataset.theme = settings.theme
     } catch { /* ignore */ }
   },
 
   saveSettings: async (s) => {
-    set({ settings: s })
-    document.documentElement.dataset.theme = s.theme
-    await window.electronAPI.writeSettings(s)
+    const normalized = normalizeAppSettings(s)
+    set({ settings: normalized })
+    document.documentElement.dataset.theme = normalized.theme
+    await window.electronAPI.writeSettings(normalized)
   },
 
   setTheme: (theme) => {
@@ -188,11 +325,331 @@ export const useStore = create<AppState>((set, get) => ({
 
   refreshImageCache: () => set((s) => ({ imageCacheVersion: s.imageCacheVersion + 1 })),
 
+  setMainView: (view) => {
+    set({ mainView: view })
+    get().persist()
+  },
+
+  setBoardViewMode: (mode) => {
+    set((s) => ({
+      uiState: { ...s.uiState, boardViewMode: mode },
+    }))
+    get().persist()
+  },
+
+  openCanvasDetail: (id) => {
+    set((s) => ({
+      mainView: 'boards',
+      activeCanvasId: id,
+      editingCardId: null,
+      uiState: { ...s.uiState, boardViewMode: 'canvas' },
+    }))
+    get().persist()
+  },
+
+  openBoardOverview: () => {
+    set((s) => ({
+      mainView: 'boards',
+      uiState: { ...s.uiState, boardViewMode: 'overview' },
+    }))
+    get().persist()
+  },
+
+  setJournalViewMode: (mode) => {
+    set((s) => ({
+      mainView: 'journal',
+      uiState: { ...s.uiState, journalViewMode: mode },
+    }))
+    get().persist()
+  },
+
+  setJournalSelectedDate: (date) => {
+    set((s) => ({
+      mainView: 'journal',
+      uiState: {
+        ...s.uiState,
+        journalSelectedDate: date,
+        journalCalendarMonth: date.slice(0, 7),
+      },
+    }))
+    get().persist()
+  },
+
+  setJournalCalendarMonth: (month) => {
+    set((s) => ({
+      uiState: { ...s.uiState, journalCalendarMonth: month },
+    }))
+    get().persist()
+  },
+
+  upsertJournalEntry: (date, patch) => {
+    set((s) => {
+      const existing = s.journal.entriesByDate[date]
+      const nextContent = typeof patch.content === 'string' ? patch.content : existing?.content ?? ''
+      const nextCustomTitle = typeof patch.customTitle === 'string'
+        ? patch.customTitle
+        : existing?.customTitle
+      const shouldDelete = !nextContent.trim() && !nextCustomTitle?.trim()
+      const entriesByDate = { ...s.journal.entriesByDate }
+
+      if (shouldDelete) {
+        delete entriesByDate[date]
+      } else {
+        entriesByDate[date] = {
+          date,
+          content: nextContent,
+          customTitle: nextCustomTitle?.trim() ? nextCustomTitle : undefined,
+          createdAt: existing?.createdAt ?? Date.now(),
+          updatedAt: Date.now(),
+        }
+      }
+
+      return {
+        mainView: 'journal' as const,
+        journal: { entriesByDate },
+        uiState: {
+          ...s.uiState,
+          journalSelectedDate: date,
+          journalCalendarMonth: date.slice(0, 7),
+        },
+      }
+    })
+    get().persist()
+  },
+
+  setTrackViewMode: (mode) => {
+    set((s) => ({
+      mainView: 'tracks',
+      uiState: { ...s.uiState, trackViewMode: mode },
+    }))
+    get().persist()
+  },
+
+  setTrackReportPeriod: (period) => {
+    set((s) => ({
+      uiState: { ...s.uiState, trackReportPeriod: period },
+    }))
+    get().persist()
+  },
+
+  setSelectedTrackId: (trackId) => {
+    set((s) => ({
+      mainView: 'tracks',
+      uiState: {
+        ...s.uiState,
+        selectedTrackId: trackId,
+        trackViewMode: trackId ? 'detail' : 'overview',
+      },
+    }))
+    get().persist()
+  },
+
+  saveTrack: (payload) => {
+    const now = Date.now()
+    const trackId = payload.trackId ?? uuid()
+    const existingTrack = get().trackSystem.tracks.find((track) => track.id === trackId)
+    const nextTrack: Track = {
+      id: trackId,
+      title: payload.title.trim(),
+      summary: payload.summary.trim(),
+      duration: payload.duration,
+      startDate: payload.startDate,
+      status: existingTrack?.status ?? 'active',
+      color: payload.color,
+      milestones: payload.milestones,
+      actions: payload.actions,
+      createdAt: existingTrack?.createdAt ?? now,
+      updatedAt: now,
+    }
+
+    set((s) => ({
+      mainView: 'tracks',
+      trackSystem: {
+        tracks: s.trackSystem.tracks.some((track) => track.id === trackId)
+          ? s.trackSystem.tracks.map((track) => track.id === trackId ? nextTrack : track)
+          : [...s.trackSystem.tracks, nextTrack],
+        revisions: s.trackSystem.revisions,
+        checkins: s.trackSystem.checkins,
+      },
+      uiState: {
+        ...s.uiState,
+        selectedTrackId: trackId,
+        trackViewMode: 'detail',
+      },
+    }))
+    get().persist()
+    return trackId
+  },
+
+  deleteTrack: (trackId) => {
+    set((s) => ({
+      trackSystem: {
+        tracks: s.trackSystem.tracks.filter((track) => track.id !== trackId),
+        revisions: s.trackSystem.revisions.filter((revision) => revision.trackId !== trackId),
+        checkins: s.trackSystem.checkins.filter((checkin) => checkin.trackId !== trackId),
+      },
+      uiState: {
+        ...s.uiState,
+        selectedTrackId: s.uiState.selectedTrackId === trackId ? null : s.uiState.selectedTrackId,
+        trackViewMode: s.uiState.selectedTrackId === trackId ? 'overview' : s.uiState.trackViewMode,
+      },
+    }))
+    get().persist()
+  },
+
+  archiveTrack: (trackId) => {
+    set((s) => ({
+      trackSystem: {
+        ...s.trackSystem,
+        tracks: s.trackSystem.tracks.map((track) =>
+          track.id === trackId ? { ...track, status: 'archived', updatedAt: Date.now() } : track,
+        ),
+      },
+    }))
+    get().persist()
+  },
+
+  restoreTrack: (trackId) => {
+    set((s) => ({
+      trackSystem: {
+        ...s.trackSystem,
+        tracks: s.trackSystem.tracks.map((track) =>
+          track.id === trackId ? { ...track, status: 'active', updatedAt: Date.now() } : track,
+        ),
+      },
+    }))
+    get().persist()
+  },
+
+  toggleTrackMilestone: ({ trackId, milestoneId, achieved, date }) => {
+    set((s) => ({
+      trackSystem: {
+        ...s.trackSystem,
+        tracks: s.trackSystem.tracks.map((track) => {
+          if (track.id !== trackId) return track
+          return {
+            ...track,
+            milestones: track.milestones.map((milestone) => {
+              if (milestone.id !== milestoneId) return milestone
+              return {
+                ...milestone,
+                achievedAt: achieved ? (date || getTodayDateKey()) : undefined,
+              }
+            }),
+            updatedAt: Date.now(),
+          }
+        }),
+      },
+    }))
+    get().persist()
+  },
+
+  addTrackActionEntry: ({ trackId, actionId, date, completedAt, note }) => {
+    set((s) => {
+      const current = s.trackSystem.checkins.find((checkin) =>
+        checkin.trackId === trackId &&
+        checkin.actionId === actionId &&
+        checkin.date === date,
+      )
+      const nextEntry = {
+        id: uuid(),
+        completedAt: completedAt ?? Date.now(),
+      }
+      const nextCheckin: TrackCheckin = {
+        id: current?.id ?? uuid(),
+        trackId,
+        revisionId: current?.revisionId ?? null,
+        actionId,
+        date,
+        count: (current?.count ?? 0) + 1,
+        entries: [...(current?.entries ?? []), nextEntry].sort((a, b) => a.completedAt - b.completedAt),
+        note: note ?? current?.note,
+        createdAt: current?.createdAt ?? Date.now(),
+        updatedAt: Date.now(),
+      }
+      const checkins = current
+        ? s.trackSystem.checkins.map((checkin) => checkin.id === current.id ? nextCheckin : checkin)
+        : [...s.trackSystem.checkins, nextCheckin]
+      return {
+        trackSystem: { ...s.trackSystem, checkins },
+      }
+    })
+    get().persist()
+  },
+
+  removeTrackActionEntry: ({ trackId, actionId, date, entryId }) => {
+    set((s) => {
+      const current = s.trackSystem.checkins.find((checkin) =>
+        checkin.trackId === trackId &&
+        checkin.actionId === actionId &&
+        checkin.date === date,
+      )
+      if (!current?.entries?.length) return s
+      const entries = current.entries.filter((entry) => entry.id !== entryId)
+      if (entries.length === current.entries.length) return s
+      const nextCount = Math.max(0, current.count - 1)
+      const checkins = nextCount <= 0
+        ? s.trackSystem.checkins.filter((checkin) => checkin.id !== current.id)
+        : s.trackSystem.checkins.map((checkin) => (
+          checkin.id === current.id
+            ? {
+                ...current,
+                count: nextCount,
+                entries: entries.length ? entries : undefined,
+                updatedAt: Date.now(),
+              }
+            : checkin
+        ))
+      return {
+        trackSystem: { ...s.trackSystem, checkins },
+      }
+    })
+    get().persist()
+  },
+
+  setTrackActionCount: ({ trackId, actionId, date, count, note }) => {
+    set((s) => {
+      const current = s.trackSystem.checkins.find((checkin) =>
+        checkin.trackId === trackId &&
+        checkin.actionId === actionId &&
+        checkin.date === date,
+      )
+      let checkins = s.trackSystem.checkins
+      if (count <= 0) {
+        checkins = checkins.filter((checkin) => checkin !== current)
+      } else {
+        const nextCheckin: TrackCheckin = {
+          id: current?.id ?? uuid(),
+          trackId,
+          revisionId: current?.revisionId ?? null,
+          actionId,
+          date,
+          count,
+          entries: current?.entries?.length
+            ? current.entries.slice(0, Math.min(current.entries.length, count))
+            : undefined,
+          note,
+          createdAt: current?.createdAt ?? Date.now(),
+          updatedAt: Date.now(),
+        }
+        checkins = current
+          ? checkins.map((checkin) => checkin.id === current.id ? nextCheckin : checkin)
+          : [...checkins, nextCheckin]
+      }
+      return {
+        trackSystem: { ...s.trackSystem, checkins },
+      }
+    })
+    get().persist()
+  },
+
   addCanvas: (name) => {
     const canvas: Canvas = { id: uuid(), name, cards: [] }
     set((s) => ({
       canvases: [...s.canvases, canvas],
       activeCanvasId: canvas.id,
+      mainView: 'boards',
+      uiState: { ...s.uiState, boardViewMode: 'canvas' },
     }))
     get().persist()
   },
@@ -210,6 +667,10 @@ export const useStore = create<AppState>((set, get) => ({
             : s.activeCanvasId,
         editingCardId:
           s.activeCanvasId === id ? null : s.editingCardId,
+        uiState: {
+          ...s.uiState,
+          boardViewMode: next.length > 0 ? s.uiState.boardViewMode : 'overview',
+        },
       }
     })
     get().persist()
@@ -225,7 +686,11 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setActiveCanvas: (id) => {
-    set({ activeCanvasId: id, editingCardId: null })
+    set((s) => ({
+      activeCanvasId: id,
+      editingCardId: null,
+      uiState: { ...s.uiState, boardViewMode: 'canvas' },
+    }))
     get().persist()
   },
 
@@ -524,8 +989,10 @@ export const useStore = create<AppState>((set, get) => ({
         return c
       }),
       activeCanvasId: targetCanvasId,
+      mainView: 'boards',
       editingCardId: null,
       highlightCardId: cardId,
+      uiState: { ...s.uiState, boardViewMode: 'canvas' },
     }))
     get().persist()
   },
@@ -988,6 +1455,39 @@ export function useCanvasViewport(canvasId: string | null) {
 
 export function useAllCanvases() {
   return useStore((s) => s.canvases.map((c) => ({ id: c.id, name: c.name })), shallow)
+}
+
+export function useMainView() {
+  return useStore((s) => s.mainView)
+}
+
+export function useUIState() {
+  return useStore((s) => s.uiState, shallow)
+}
+
+export function useJournalEntries() {
+  return useStore((s) => s.journal.entriesByDate, shallow)
+}
+
+export function useSortedJournalEntries() {
+  return useStore((s) =>
+    Object.values(s.journal.entriesByDate).sort((a, b) => b.date.localeCompare(a.date)),
+  )
+}
+
+export function useTrackSystem() {
+  return useStore((s) => s.trackSystem, shallow)
+}
+
+export function useTracks() {
+  return useStore((s) => s.trackSystem.tracks, shallow)
+}
+
+export function useSelectedTrack() {
+  return useStore((s) => {
+    const trackId = s.uiState.selectedTrackId
+    return s.trackSystem.tracks.find((track) => track.id === trackId) ?? null
+  }, shallow)
 }
 
 export function useSettings() {

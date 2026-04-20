@@ -54,9 +54,119 @@ export interface Canvas {
 }
 
 export interface AppData {
+  schemaVersion: number
   canvases: Canvas[]
   activeCanvasId: string | null
+  mainView: MainView
+  journal: JournalData
+  trackSystem: TrackSystemData
+  uiState: UIState
   _syncTimestamp?: number
+}
+
+export type MainView = 'journal' | 'tracks' | 'boards'
+
+export type BoardViewMode = 'overview' | 'canvas'
+
+export type JournalViewMode = 'detail' | 'table'
+
+export type TrackViewMode = 'overview' | 'detail' | 'reports'
+
+export type TrackReportPeriod = 'week' | 'month' | 'quarter' | 'halfYear' | 'year'
+
+export interface JournalEntry {
+  date: string
+  customTitle?: string
+  content: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface JournalData {
+  entriesByDate: Record<string, JournalEntry>
+}
+
+export interface TrackDuration {
+  unit: 'month' | 'year'
+  count: number
+}
+
+export interface TrackMilestone {
+  id: string
+  title: string
+  dueDate: string
+  definition: string
+  achievedAt?: string
+}
+
+export interface Track {
+  id: string
+  title: string
+  summary: string
+  duration: TrackDuration
+  startDate: string
+  status: 'active' | 'archived'
+  color: string
+  milestones: TrackMilestone[]
+  actions: TrackAction[]
+  createdAt: number
+  updatedAt: number
+}
+
+export interface TrackActionFrequency {
+  unit: 'daily' | 'workday' | 'weekly' | 'monthly'
+  targetCount: number
+}
+
+export interface TrackAction {
+  id: string
+  title: string
+  detail: string
+  frequency: TrackActionFrequency
+}
+
+export interface TrackRevision {
+  id: string
+  trackId: string
+  title: string
+  summary: string
+  reason: string
+  effectiveFrom: string
+  createdAt: number
+}
+
+export interface TrackCheckinEntry {
+  id: string
+  completedAt: number
+}
+
+export interface TrackCheckin {
+  id: string
+  trackId: string
+  revisionId?: string | null
+  actionId: string
+  date: string
+  count: number
+  entries?: TrackCheckinEntry[]
+  note?: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface TrackSystemData {
+  tracks: Track[]
+  revisions: TrackRevision[]
+  checkins: TrackCheckin[]
+}
+
+export interface UIState {
+  boardViewMode: BoardViewMode
+  journalViewMode: JournalViewMode
+  journalSelectedDate: string
+  journalCalendarMonth: string
+  selectedTrackId: string | null
+  trackViewMode: TrackViewMode
+  trackReportPeriod: TrackReportPeriod
 }
 
 export interface WebDAVConfig {
@@ -68,6 +178,20 @@ export interface WebDAVConfig {
 export interface AppSettings {
   theme: 'light' | 'dark'
   webdav?: WebDAVConfig
+  notifications: NotificationSettings
+}
+
+export interface QuietHours {
+  enabled: boolean
+  start: string
+  end: string
+}
+
+export interface NotificationSettings {
+  enabled: boolean
+  runInBackground: boolean
+  launchAtLogin: boolean
+  quietHours: QuietHours
 }
 
 export interface WebDAVSyncSummary {
@@ -76,11 +200,14 @@ export interface WebDAVSyncSummary {
   labelCount: number
   sectionCount: number
   connectionCount: number
+  journalEntryCount: number
+  trackCount: number
+  trackCheckinCount: number
   totalEntityCount: number
 }
 
 export interface WebDAVSyncDecision {
-  reason: 'remote-newer' | 'diverged' | 'destructive-remote'
+  reason: 'remote-newer' | 'diverged' | 'destructive-remote' | 'remote-missing'
   risk: 'low' | 'high'
   message: string
   preferredResolution: 'keep-local' | 'use-remote'
@@ -90,9 +217,9 @@ export interface WebDAVSyncDecision {
   remoteTimestamp: number
 }
 
-export type WebDAVSyncResolution = 'keep-local' | 'use-remote'
+export type WebDAVSyncResolution = 'keep-local' | 'use-remote' | 'dismiss'
 
-export type WebDAVSyncAction = 'uploaded' | 'downloaded' | 'up-to-date' | 'needs-confirmation'
+export type WebDAVSyncAction = 'uploaded' | 'downloaded' | 'up-to-date' | 'needs-confirmation' | 'dismissed'
 
 export interface WebDAVSyncResult {
   success: boolean
@@ -163,9 +290,10 @@ declare global {
       exportBackup: () => Promise<{ success: boolean; path?: string; fileName?: string; error?: string }>
       importBackup: () => Promise<{ success: boolean; data?: AppData; error?: string }>
       checkBackupExists: () => Promise<BackupStatus>
-      prepareClearAllData: () => Promise<PrepareClearResult>
-      clearAllData: () => Promise<{ success: boolean; data?: AppData; error?: string }>
+      prepareClearAllCards: () => Promise<PrepareClearResult>
+      clearAllCards: () => Promise<{ success: boolean; data?: AppData; error?: string }>
       getBackupDir: () => Promise<string>
+      onTrackReminderOpen: (cb: (payload: { trackId: string; date: string }) => void) => () => void
     }
   }
 }
