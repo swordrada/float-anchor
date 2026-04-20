@@ -961,11 +961,11 @@ export default function CanvasView() {
 
           <svg className="connections-layer">
             <defs>
-              <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                <polygon points="0 0, 10 3.5, 0 7" fill={arrowColor} />
+              <marker id="arrowhead" markerWidth="8" markerHeight="7" refX="8" refY="3.5" orient="auto">
+                <polygon points="0,1 8,3.5 0,6" fill={arrowColor} />
               </marker>
-              <marker id="arrowhead-active" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                <polygon points="0 0, 10 3.5, 0 7" fill="var(--accent)" />
+              <marker id="arrowhead-active" markerWidth="8" markerHeight="7" refX="8" refY="3.5" orient="auto">
+                <polygon points="0,1 8,3.5 0,6" fill="var(--accent)" />
               </marker>
             </defs>
             {connectingFrom && connectingMouse && (() => {

@@ -98,6 +98,7 @@ const CanvasLabelComponent = React.memo(function CanvasLabelComponent({ label, s
   return (
     <div
       className={`canvas-label ${isDragging ? 'dragging' : ''} ${selected ? 'multi-selected' : ''}`}
+      data-level={label.level}
       style={{ left: label.x, top: label.y, width: label.width }}
       onMouseDown={handleDragStart}
       onClick={handleClick}

@@ -542,9 +542,7 @@ input {
   overflow: hidden;
   position: relative;
   cursor: default;
-  background-color: #f6f6f6;
-  background-image: radial-gradient(circle, #d4d4d4 1px, transparent 1px);
-  background-size: 24px 24px;
+  background-color: #ffffff;
   isolation: isolate;
 }
 
@@ -611,10 +609,10 @@ input {
   gap: 8px;
   max-width: 420px;
   padding: 16px 20px;
-  border-radius: 18px;
-  background: color-mix(in srgb, var(--card-bg) 88%, var(--bg) 12%);
-  border: 1px solid color-mix(in srgb, var(--border) 92%, var(--accent) 8%);
-  box-shadow: var(--shadow-sm);
+  border-radius: 14px;
+  background: var(--card-bg);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
+  box-shadow: 0 1px 0 rgba(15, 15, 15, 0.04);
   text-align: center;
 }
 
@@ -634,20 +632,20 @@ input {
 /* ===== Canvas Locate Button ===== */
 .canvas-locate-btn {
   position: absolute;
-  bottom: 20px;
-  right: 20px;
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
+  bottom: 16px;
+  right: 16px;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
   background: var(--card-bg);
-  box-shadow: var(--shadow-md);
-  border: 1px solid var(--border);
+  box-shadow: 0 2px 8px -2px rgba(15, 15, 15, 0.18);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition: background 0.18s, color 0.18s, border-color 0.18s, box-shadow 0.18s;
   z-index: 200;
 }
 
@@ -655,30 +653,31 @@ input {
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
-  box-shadow: var(--shadow-lg);
-  transform: scale(1.08);
+  box-shadow: 0 4px 14px -4px rgba(74, 144, 217, 0.45);
 }
 
 .canvas-locate-btn:active {
-  transform: scale(0.95);
+  transform: translateY(1px);
 }
 
 /* ===== Note Card ===== */
 .note-card {
   position: absolute;
   background: var(--card-bg);
-  border-radius: var(--radius-md);
-  box-shadow: var(--shadow-sm);
-  border: 1.5px solid transparent;
+  border-radius: 12px;
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+  box-shadow: 0 1px 0 rgba(15, 15, 15, 0.04);
   cursor: default;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   contain: layout style paint;
+  transition: box-shadow 0.18s ease, border-color 0.18s ease;
 }
 
 .note-card:hover {
-  box-shadow: var(--shadow-md);
+  border-color: color-mix(in srgb, var(--border) 95%, var(--text-muted) 5%);
+  box-shadow: 0 1px 0 rgba(15, 15, 15, 0.04), 0 6px 18px -10px rgba(15, 15, 15, 0.18);
 }
 
 .note-card-placeholder {
@@ -686,19 +685,19 @@ input {
 }
 
 .note-card.dragging {
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 1px 0 rgba(15, 15, 15, 0.05), 0 14px 28px -12px rgba(15, 15, 15, 0.28);
   z-index: 100;
-  opacity: 0.92;
+  opacity: 0.94;
 }
 
 .note-card.resizing {
-  box-shadow: var(--shadow-lg);
+  box-shadow: 0 1px 0 rgba(15, 15, 15, 0.05), 0 12px 24px -12px rgba(15, 15, 15, 0.22);
   z-index: 90;
 }
 
 .note-card.editing {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--accent-light), var(--shadow-md);
+  box-shadow: 0 0 0 3px var(--accent-light), 0 8px 22px -12px rgba(15, 15, 15, 0.22);
   z-index: 50;
   min-width: 400px;
   overflow: visible;
@@ -707,21 +706,15 @@ input {
 
 /* ---- Drag Handle Banner ---- */
 .card-drag-handle {
-  height: 24px;
+  height: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: grab;
   background: transparent;
-  border-radius: 10px 10px 0 0;
-  transition: background 0.18s;
+  border-radius: 12px 12px 0 0;
   flex-shrink: 0;
   position: relative;
-}
-
-.note-card:hover .card-drag-handle,
-.note-card.dragging .card-drag-handle {
-  background: #ebebeb;
 }
 
 .note-card.dragging .card-drag-handle {
@@ -729,22 +722,31 @@ input {
 }
 
 .drag-grip {
-  display: grid;
-  grid-template-columns: repeat(3, 4px);
-  gap: 3px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 4px;
   opacity: 0;
   transition: opacity 0.18s;
 }
 
-.note-card:hover .drag-grip {
-  opacity: 0.45;
+.note-card:hover .drag-grip,
+.note-card.dragging .drag-grip {
+  opacity: 0.7;
+}
+
+.drag-grip::before {
+  content: '';
+  display: block;
+  width: 18px;
+  height: 1px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--text-muted) 55%, transparent);
 }
 
 .drag-grip span {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: #888;
+  display: none;
 }
 
 /* ---- Banner Action Buttons ---- */
@@ -769,14 +771,14 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: 6px;
   color: var(--text-muted);
   cursor: pointer;
   transition: all 0.12s;
 }
 
 .card-banner-btn:hover {
-  background: rgba(0, 0, 0, 0.08);
+  background: color-mix(in srgb, var(--text-muted) 12%, transparent);
   color: var(--text-secondary);
 }
 
@@ -1234,8 +1236,8 @@ input {
 /* ===== Section Box ===== */
 .section-box {
   position: absolute;
-  border: 2px dashed;
-  border-radius: var(--radius-lg);
+  border: 1.5px solid;
+  border-radius: 14px;
   z-index: 0;
   pointer-events: none;
 }
@@ -1245,13 +1247,23 @@ input {
 }
 
 .section-header {
-  display: flex;
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 6px 10px;
+  gap: 8px;
+  padding: 5px 14px 5px 12px;
+  border-radius: 14px 0 14px 0;
   cursor: grab;
   user-select: none;
   pointer-events: auto;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  max-width: calc(100% - 20px);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.05);
 }
 
 .section-box.dragging .section-header {
@@ -1259,35 +1271,41 @@ input {
 }
 
 .section-color-dot {
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  flex-shrink: 0;
+  display: none;
 }
 
 .section-name {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
+  color: #fff;
   cursor: default;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .section-name-input {
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 12px;
+  font-weight: 650;
+  letter-spacing: 0.05em;
   border: none;
   outline: none;
   background: transparent;
-  color: var(--text-primary);
-  border-bottom: 1px solid var(--accent);
+  color: #fff;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.6);
   padding-bottom: 1px;
   width: 120px;
+}
+
+.section-name-input::placeholder {
+  color: rgba(255, 255, 255, 0.55);
 }
 
 .section-actions {
   display: flex;
   gap: 2px;
-  margin-left: auto;
+  margin-left: 4px;
 }
 
 .section-action-btn {
@@ -1296,20 +1314,55 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
-  color: var(--text-muted);
+  border-radius: 5px;
+  color: rgba(255, 255, 255, 0.85);
   cursor: pointer;
   transition: all 0.12s;
 }
 
 .section-action-btn:hover {
-  color: var(--accent);
-  background: rgba(74, 144, 217, 0.1);
+  background: var(--sec-action-hover, rgba(255, 255, 255, 0.18));
 }
 
 .section-action-btn.danger:hover {
-  color: var(--danger);
-  background: rgba(229, 92, 92, 0.1);
+  background: rgba(229, 92, 92, 0.65);
+  color: #fff !important;
+}
+
+.section-color-picker {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 22px);
+  gap: 6px;
+  padding: 8px;
+  background: var(--card-bg);
+  border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px -10px rgba(15, 15, 15, 0.25);
+  z-index: 20;
+  pointer-events: auto;
+}
+
+.section-color-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid color-mix(in srgb, #000 14%, transparent);
+  cursor: pointer;
+  padding: 0;
+  position: relative;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.section-color-swatch:hover {
+  transform: scale(1.08);
+  box-shadow: 0 2px 6px -2px rgba(15, 15, 15, 0.3);
+}
+
+.section-color-swatch.active {
+  box-shadow: 0 0 0 2px var(--card-bg), 0 0 0 3.5px var(--accent);
 }
 
 .section-resize-handle {
@@ -1335,17 +1388,37 @@ input {
   position: absolute;
   cursor: grab;
   user-select: none;
-  padding: 6px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--card-bg);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  padding: 4px 8px 6px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
   z-index: 5;
 }
 
+.canvas-label[data-level="0"],
+.canvas-label[data-level="3"],
+.canvas-label[data-level="4"] {
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary) 12%, transparent);
+  padding: 5px 10px;
+}
+
+.canvas-label[data-level="1"],
+.canvas-label[data-level="2"] {
+  border-bottom: 1px solid color-mix(in srgb, var(--text-muted) 35%, transparent);
+  border-radius: 0;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
 .canvas-label:hover {
-  border-color: #bbb;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  border-color: color-mix(in srgb, var(--text-muted) 30%, transparent);
+}
+
+.canvas-label[data-level="1"]:hover,
+.canvas-label[data-level="2"]:hover {
+  border-bottom-color: color-mix(in srgb, var(--text-muted) 60%, transparent);
 }
 
 .canvas-label.dragging {
@@ -1369,13 +1442,13 @@ input {
   background: transparent;
   color: var(--text-primary);
   line-height: 1.3;
-  border-bottom: 2px solid var(--accent);
+  border-bottom: 1px solid var(--accent);
   padding-bottom: 2px;
 }
 
 .label-actions {
   position: absolute;
-  top: -4px;
+  top: -6px;
   right: -8px;
   display: flex;
   gap: 2px;
@@ -1387,12 +1460,12 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: 5px;
   background: var(--card-bg);
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
   color: var(--text-muted);
   cursor: pointer;
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
   transition: all 0.12s;
 }
 
@@ -1574,9 +1647,11 @@ input {
 
 .conn-line {
   fill: none;
-  stroke: #ccc;
-  stroke-width: 1.5;
-  transition: stroke 0.15s;
+  stroke: color-mix(in srgb, var(--text-muted) 48%, transparent);
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: stroke 0.15s, stroke-width 0.15s;
 }
 
 .conn-line.active {
@@ -1586,9 +1661,9 @@ input {
 
 .conn-line.conn-preview {
   stroke: var(--accent);
-  stroke-width: 1.5;
-  stroke-dasharray: 6 4;
-  opacity: 0.7;
+  stroke-width: 1.6;
+  stroke-dasharray: 5 4;
+  opacity: 0.65;
   pointer-events: none;
 }
 
@@ -1597,13 +1672,13 @@ input {
   height: 20px;
   border-radius: 50%;
   background: var(--card-bg);
-  border: 1px solid var(--border);
+  border: 1px solid color-mix(in srgb, var(--border) 80%, transparent);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   color: var(--danger);
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
 }
 
 .conn-delete-btn:hover {
@@ -1666,13 +1741,19 @@ input {
 }
 
 /* ===== Dark Theme Overrides ===== */
-[data-theme="dark"] .note-card:hover .card-drag-handle,
-[data-theme="dark"] .note-card.dragging .card-drag-handle {
-  background: #333;
+[data-theme="dark"] .note-card {
+  background: #25262b;
+  border-color: #34353b;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4);
 }
 
-[data-theme="dark"] .drag-grip span {
-  background: #666;
+[data-theme="dark"] .note-card:hover {
+  border-color: #3d3e44;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.4), 0 8px 22px -10px rgba(0, 0, 0, 0.6);
+}
+
+[data-theme="dark"] .drag-grip::before {
+  background: color-mix(in srgb, #aaa 55%, transparent);
 }
 
 [data-theme="dark"] .markdown-body code {
@@ -1698,12 +1779,13 @@ input {
 }
 
 [data-theme="dark"] .canvas-viewport {
-  background-color: #1e1e22;
-  background-image: radial-gradient(circle, #3a3a40 1px, transparent 1px);
+  background-color: #1d1e22;
+  background-image: radial-gradient(circle, rgba(255, 255, 255, 0.04) 0.8px, transparent 0.8px);
+  background-size: 96px 96px;
 }
 
 [data-theme="dark"] .conn-line {
-  stroke: #555;
+  stroke: rgba(255, 255, 255, 0.22);
 }
 
 [data-theme="dark"] .conn-line.active {
@@ -1717,7 +1799,8 @@ input {
 }
 
 [data-theme="dark"] .canvas-empty-card-hint {
-  background: color-mix(in srgb, var(--card-bg) 92%, var(--bg) 8%);
+  background: var(--card-bg);
+  border-color: color-mix(in srgb, var(--border) 80%, transparent);
 }
 
 [data-theme="dark"] .canvas-count {

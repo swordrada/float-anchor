@@ -144,7 +144,17 @@ interface AppState {
 let saveTimer: ReturnType<typeof setTimeout> | undefined
 let syncTimer: ReturnType<typeof setTimeout> | undefined
 
-const SECTION_COLORS = ['#9ca3af', '#60a5fa', '#34d399', '#fb923c', '#f472b6']
+export const SECTION_COLORS = [
+  '#9ca3af',
+  '#60a5fa',
+  '#22d3ee',
+  '#34d399',
+  '#fbbf24',
+  '#fb923c',
+  '#f87171',
+  '#f472b6',
+  '#a78bfa',
+]
 const LOCAL_WEBDAV_SYNC_DELAY_MS = 2000
 
 function createInitialCanvas(): Canvas {
