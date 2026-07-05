@@ -1,16 +1,45 @@
 import { create } from 'zustand'
 import { shallow } from 'zustand/shallow'
 import { v4 as uuid } from 'uuid'
-import type { Canvas, Card, CanvasLabel, Section, Connection, CanvasViewport, AppSettings, WebDAVConfig, WebDAVSyncDecision } from './types'
+import type { Canvas, Card, CanvasLabel, Section, Connection, CanvasViewport, AppSettings, WebDAVConfig, WebDAVSyncDecision, TextBox, SyncProvider } from './types'
+
+export function getEffectiveProvider(settings: AppSettings): SyncProvider {
+  return settings.syncProvider ?? (settings.webdav?.server ? 'webdav' : 'none')
+}
+
+interface SnapRect { x: number; y: number; width: number; height: number }
+
+// 判断卡片 cd 是否真正"贴靠"在 member 旁边：在一个轴方向上贴合（边缘吻合或相隔一个 GAP），
+// 且在另一个轴方向上有实际重叠。仅单轴边缘吻合（如只有 x 对齐、y 却相距很远）不算贴靠——
+// 否则磁吸把卡片吸到远处分区成员的同列/同行坐标后，那个远分区会误判并拉伸过来框住卡片。
+export function isCardSnappedAdjacent(cd: SnapRect, member: SnapRect, gap: number, tol = 1): boolean {
+  const cR = cd.x + cd.width, cB = cd.y + cd.height
+  const mR = member.x + member.width, mB = member.y + member.height
+  const overlapsX = Math.min(cR, mR) - Math.max(cd.x, member.x) > tol
+  const overlapsY = Math.min(cB, mB) - Math.max(cd.y, member.y) > tol
+  const touchH =
+    Math.abs(cd.x - (mR + gap)) < tol ||
+    Math.abs(cR - (member.x - gap)) < tol ||
+    Math.abs(cd.x - member.x) < tol ||
+    Math.abs(cR - mR) < tol
+  const touchV =
+    Math.abs(cd.y - member.y) < tol ||
+    Math.abs(cB - mB) < tol ||
+    Math.abs(cd.y - (mB + gap)) < tol ||
+    Math.abs(cB - (member.y - gap)) < tol
+  return (touchH && overlapsY) || (touchV && overlapsX)
+}
 
 interface AppState {
   canvases: Canvas[]
   activeCanvasId: string | null
   editingCardId: string | null
+  editingTextId: string | null
   highlightCardId: string | null
   loaded: boolean
   settings: AppSettings
-  syncStatus: 'idle' | 'syncing' | 'success' | 'error' | 'warning'
+  syncStatus: 'idle' | 'pending' | 'syncing' | 'success' | 'error' | 'warning'
+  syncError: string | null
   syncDecision: WebDAVSyncDecision | null
   imageCacheVersion: number
   showSettings: boolean
@@ -21,10 +50,12 @@ interface AppState {
   saveSettings: (s: AppSettings) => Promise<void>
   setTheme: (theme: 'light' | 'dark') => void
   setWebDAVConfig: (config: WebDAVConfig | undefined) => void
+  setSyncProvider: (p: SyncProvider) => void
   setShowSettings: (v: boolean) => void
-  setSyncStatus: (s: 'idle' | 'syncing' | 'success' | 'error' | 'warning') => void
+  setSyncStatus: (s: 'idle' | 'pending' | 'syncing' | 'success' | 'error' | 'warning', error?: string | null) => void
   setSyncDecision: (decision: WebDAVSyncDecision | null) => void
   refreshImageCache: () => void
+  flushPendingSave: () => Promise<void>
 
   addCanvas: (name: string) => void
   deleteCanvas: (id: string) => void
@@ -38,6 +69,11 @@ interface AppState {
   setEditingCard: (cardId: string | null) => void
   moveCardToCanvas: (cardId: string, targetCanvasId: string) => void
   setHighlightCard: (cardId: string | null) => void
+  addText: (x: number, y: number) => void
+  updateText: (textId: string, patch: Partial<TextBox>) => void
+  deleteText: (textId: string) => void
+  moveText: (textId: string, x: number, y: number) => void
+  setEditingText: (textId: string | null) => void
 
   addLabel: (x: number, y: number) => void
   updateLabel: (labelId: string, patch: Partial<CanvasLabel>) => void
@@ -50,6 +86,9 @@ interface AppState {
   moveSection: (sectionId: string, dx: number, dy: number) => void
   autoFitSection: (sectionId: string) => void
   compactSection: (sectionId: string) => void
+  arrangeUnits: (ids: { cardIds: string[]; labelIds: string[]; sectionIds: string[]; textIds: string[] }) => void
+  deleteUnits: (ids: { cardIds: string[]; labelIds: string[]; sectionIds: string[]; textIds: string[] }) => void
+  nudgeUnits: (ids: { cardIds: string[]; labelIds: string[]; sectionIds: string[]; textIds: string[] }, dx: number, dy: number) => void
 
   finalizeCardMove: (cardId: string) => void
 
@@ -61,18 +100,22 @@ interface AppState {
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined
 let syncTimer: ReturnType<typeof setTimeout> | undefined
+let lastRemoteUploadAt = 0
 
 const SECTION_COLORS = ['#9ca3af', '#60a5fa', '#34d399', '#fb923c', '#f472b6']
 const LOCAL_WEBDAV_SYNC_DELAY_MS = 2000
+const MIN_REMOTE_UPLOAD_INTERVAL_MS = 30000
 
 export const useStore = create<AppState>((set, get) => ({
   canvases: [],
   activeCanvasId: null,
   editingCardId: null,
+  editingTextId: null,
   highlightCardId: null,
   loaded: false,
   settings: { theme: 'light' },
   syncStatus: 'idle',
+  syncError: null,
   syncDecision: null,
   imageCacheVersion: 0,
   showSettings: false,
@@ -118,13 +161,17 @@ export const useStore = create<AppState>((set, get) => ({
       const { canvases, activeCanvasId, settings, syncDecision } = get()
       void window.electronAPI.writeData({ canvases, activeCanvasId }).then((saved) => {
         if (!saved) return
-        if (settings.webdav?.server && !syncDecision) {
+        if (getEffectiveProvider(settings) !== 'none' && !syncDecision) {
+          set({ syncStatus: 'pending', syncError: null })
           clearTimeout(syncTimer)
+          const sinceLast = Date.now() - lastRemoteUploadAt
+          const delay = Math.max(LOCAL_WEBDAV_SYNC_DELAY_MS, MIN_REMOTE_UPLOAD_INTERVAL_MS - sinceLast)
           syncTimer = setTimeout(() => {
-            set({ syncStatus: 'syncing' })
-            window.electronAPI.webdavAutoSync(settings.webdav!).then(async (res) => {
+            set({ syncStatus: 'syncing', syncError: null })
+            window.electronAPI.syncAuto().then(async (res) => {
               if (!res.success) {
-                set({ syncStatus: 'error' })
+                // 失败时不更新 lastRemoteUploadAt，使下次编辑可较快重试（delay 退化为 2s）
+                set({ syncStatus: 'error', syncError: res.error ?? '同步失败' })
                 return
               }
               if (res.action === 'needs-confirmation' && res.decision) {
@@ -135,20 +182,26 @@ export const useStore = create<AppState>((set, get) => ({
                 })
                 return
               }
-              if (res.success && res.action === 'downloaded' && res.data) {
+              if (res.action === 'downloaded' && res.data) {
                 await get().loadData()
                 get().refreshImageCache()
               }
-              if (res.action === 'uploaded' || res.action === 'downloaded') {
-                set({ syncStatus: 'success', syncDecision: null })
-                setTimeout(() => {
-                  if (get().syncStatus === 'success') set({ syncStatus: 'idle' })
-                }, 3000)
+              if (res.action === 'uploaded' || res.action === 'downloaded' || res.action === 'up-to-date') {
+                // 仅成功路径才更新节流时间戳
+                lastRemoteUploadAt = Date.now()
+                if (res.action !== 'up-to-date') {
+                  set({ syncStatus: 'success', syncDecision: null })
+                  setTimeout(() => {
+                    if (get().syncStatus === 'success') set({ syncStatus: 'idle' })
+                  }, 3000)
+                } else {
+                  set({ syncStatus: 'idle', syncDecision: null })
+                }
                 return
               }
               set({ syncStatus: 'idle', syncDecision: null })
-            }).catch(() => set({ syncStatus: 'error' }))
-          }, LOCAL_WEBDAV_SYNC_DELAY_MS)
+            }).catch(() => set({ syncStatus: 'error', syncError: '同步失败' }))
+          }, delay)
         }
       })
     }, 600)
@@ -180,13 +233,24 @@ export const useStore = create<AppState>((set, get) => ({
     get().saveSettings(s)
   },
 
+  setSyncProvider: (p) => {
+    const s = { ...get().settings, syncProvider: p }
+    get().saveSettings(s)
+  },
+
   setShowSettings: (v) => set({ showSettings: v }),
 
-  setSyncStatus: (s) => set({ syncStatus: s }),
+  setSyncStatus: (s, error = null) => set({ syncStatus: s, syncError: s === 'error' ? (error ?? '同步失败') : null }),
 
   setSyncDecision: (decision) => set({ syncDecision: decision }),
 
   refreshImageCache: () => set((s) => ({ imageCacheVersion: s.imageCacheVersion + 1 })),
+
+  flushPendingSave: async () => {
+    clearTimeout(saveTimer)
+    const { canvases, activeCanvasId } = get()
+    await window.electronAPI.writeData({ canvases, activeCanvasId })
+  },
 
   addCanvas: (name) => {
     const canvas: Canvas = { id: uuid(), name, cards: [] }
@@ -275,7 +339,19 @@ export const useStore = create<AppState>((set, get) => ({
     set((s) => ({
       canvases: s.canvases.map((c) =>
         c.id === activeCanvasId
-          ? { ...c, cards: c.cards.filter((card) => card.id !== cardId) }
+          ? {
+              ...c,
+              cards: c.cards.filter((card) => card.id !== cardId),
+              connections: (c.connections ?? []).filter(
+                (cn) => cn.fromCardId !== cardId && cn.toCardId !== cardId,
+              ),
+              sections: (c.sections ?? []).map((sec) => {
+                const members = sec.cardIds ?? []
+                return members.includes(cardId)
+                  ? { ...sec, cardIds: members.filter((id) => id !== cardId) }
+                  : sec
+              }),
+            }
           : c,
       ),
       editingCardId:
@@ -412,21 +488,14 @@ export const useStore = create<AppState>((set, get) => ({
     const snappedToMemberOf = (cd: Card, sec: Section): boolean => {
       const members = sec.cardIds ?? []
       if (members.length === 0) return false
+      const cdRect = { x: cd.x, y: cd.y, width: cd.width, height: cd.height ?? 300 }
       for (const mId of members) {
         if (mId === cd.id) continue
         const member = canvas.cards.find((c) => c.id === mId)
         if (!member) continue
-        const mW = member.width; const mH = member.height ?? 300
-        const cW = cd.width; const cH = cd.height ?? 300
-        const touchH = (Math.abs(cd.x - (member.x + mW + GAP)) < 1) ||
-                      (Math.abs((cd.x + cW) - (member.x - GAP)) < 1) ||
-                      (Math.abs(cd.x - member.x) < 1) ||
-                      (Math.abs((cd.x + cW) - (member.x + mW)) < 1)
-        const touchV = (Math.abs(cd.y - member.y) < 1) ||
-                      (Math.abs((cd.y + cH) - (member.y + mH)) < 1) ||
-                      (Math.abs(cd.y - (member.y + mH + GAP)) < 1) ||
-                      (Math.abs((cd.y + cH) - (member.y - GAP)) < 1)
-        if (touchH || touchV) return true
+        const mRect = { x: member.x, y: member.y, width: member.width, height: member.height ?? 300 }
+        // 需一轴贴合 + 另一轴有重叠，避免远处分区因单轴对齐被误判贴靠并拉伸
+        if (isCardSnappedAdjacent(cdRect, mRect, GAP)) return true
       }
       return false
     }
@@ -531,6 +600,63 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setHighlightCard: (cardId) => set({ highlightCardId: cardId }),
+
+  addText: (x, y) => {
+    const { activeCanvasId } = get()
+    if (!activeCanvasId) return
+    const text: TextBox = { id: uuid(), text: '', x, y, width: 300 }
+    set((s) => ({
+      canvases: s.canvases.map((c) =>
+        c.id === activeCanvasId
+          ? { ...c, texts: [...(c.texts ?? []), text] }
+          : c,
+      ),
+      editingTextId: text.id,
+    }))
+    get().persist()
+  },
+
+  updateText: (textId, patch) => {
+    const { activeCanvasId } = get()
+    if (!activeCanvasId) return
+    set((s) => ({
+      canvases: s.canvases.map((c) =>
+        c.id === activeCanvasId
+          ? { ...c, texts: (c.texts ?? []).map((t) => t.id === textId ? { ...t, ...patch } : t) }
+          : c,
+      ),
+    }))
+    get().persist()
+  },
+
+  deleteText: (textId) => {
+    const { activeCanvasId } = get()
+    if (!activeCanvasId) return
+    set((s) => ({
+      canvases: s.canvases.map((c) =>
+        c.id === activeCanvasId
+          ? { ...c, texts: (c.texts ?? []).filter((t) => t.id !== textId) }
+          : c,
+      ),
+      editingTextId: s.editingTextId === textId ? null : s.editingTextId,
+    }))
+    get().persist()
+  },
+
+  moveText: (textId, x, y) => {
+    const { activeCanvasId } = get()
+    if (!activeCanvasId) return
+    set((s) => ({
+      canvases: s.canvases.map((c) =>
+        c.id === activeCanvasId
+          ? { ...c, texts: (c.texts ?? []).map((t) => t.id === textId ? { ...t, x, y } : t) }
+          : c,
+      ),
+    }))
+    get().persist()
+  },
+
+  setEditingText: (textId) => set({ editingTextId: textId }),
 
   addLabel: (x, y) => {
     const { activeCanvasId } = get()
@@ -850,6 +976,185 @@ export const useStore = create<AppState>((set, get) => ({
     get().persist()
   },
 
+  arrangeUnits: (ids) => {
+    const { activeCanvasId } = get()
+    if (!activeCanvasId) return
+    const canvas = get().canvases.find((c) => c.id === activeCanvasId)
+    if (!canvas) return
+
+    const cardIds = new Set(ids.cardIds)
+    const labelIds = new Set(ids.labelIds)
+    const sectionIds = new Set(ids.sectionIds)
+    const textIds = new Set(ids.textIds)
+
+    const selSections = (canvas.sections ?? []).filter((s) => sectionIds.has(s.id))
+    const memberOfSelected = new Set<string>()
+    for (const s of selSections) {
+      for (const cid of (s.cardIds ?? [])) memberOfSelected.add(cid)
+    }
+
+    type Unit = { id: string; x: number; y: number; w: number; h: number }
+    const units: Unit[] = []
+    for (const t of canvas.texts ?? []) {
+      if (textIds.has(t.id)) units.push({ id: t.id, x: t.x, y: t.y, w: t.width, h: t.height ?? 24 })
+    }
+    for (const l of canvas.labels ?? []) {
+      if (labelIds.has(l.id)) units.push({ id: l.id, x: l.x, y: l.y, w: l.width, h: 40 })
+    }
+    for (const s of canvas.sections ?? []) {
+      if (sectionIds.has(s.id)) units.push({ id: s.id, x: s.x, y: s.y, w: s.width, h: s.height })
+    }
+    for (const c of canvas.cards) {
+      if (cardIds.has(c.id) && !memberOfSelected.has(c.id)) {
+        units.push({ id: c.id, x: c.x, y: c.y, w: c.width, h: c.height ?? 200 })
+      }
+    }
+
+    if (units.length < 2) return
+
+    const GAP = 20
+
+    // 列聚类（按中心 x），复用 compactSection 思路
+    const byX = [...units].sort((a, b) => a.x - b.x)
+    const columns: Unit[][] = []
+    for (const r of byX) {
+      const cx = r.x + r.w / 2
+      let placed = false
+      for (const col of columns) {
+        const colCx = col.reduce((s, u) => s + u.x + u.w / 2, 0) / col.length
+        const colW = col.reduce((s, u) => s + u.w, 0) / col.length
+        if (Math.abs(cx - colCx) < Math.max(r.w, colW) * 0.6) {
+          col.push(r); placed = true; break
+        }
+      }
+      if (!placed) columns.push([r])
+    }
+    for (const col of columns) col.sort((a, b) => a.y - b.y)
+    columns.sort((a, b) => {
+      const ma = a.reduce((s, r) => s + r.x, 0) / a.length
+      const mb = b.reduce((s, r) => s + r.x, 0) / b.length
+      return ma - mb
+    })
+
+    const originX = Math.min(...units.map((u) => u.x))
+    const originY = Math.min(...units.map((u) => u.y))
+    const newPos = new Map<string, { x: number; y: number }>()
+    let colX = originX
+    for (const col of columns) {
+      const colW = Math.max(...col.map((u) => u.w))
+      let cy = originY
+      for (const u of col) {
+        newPos.set(u.id, { x: Math.round(colX), y: Math.round(cy) })
+        cy += u.h + GAP
+      }
+      colX += colW + GAP
+    }
+
+    // 分区位移 + 成员卡片归属
+    const sectionDelta = new Map<string, { dx: number; dy: number }>()
+    for (const s of selSections) {
+      const np = newPos.get(s.id)
+      if (np) sectionDelta.set(s.id, { dx: np.x - s.x, dy: np.y - s.y })
+    }
+    const cardToSection = new Map<string, string>()
+    for (const s of selSections) {
+      for (const cid of (s.cardIds ?? [])) cardToSection.set(cid, s.id)
+    }
+
+    set((st) => ({
+      canvases: st.canvases.map((c) => {
+        if (c.id !== activeCanvasId) return c
+        return {
+          ...c,
+          texts: (c.texts ?? []).map((t) => {
+            const np = newPos.get(t.id)
+            return np ? { ...t, x: np.x, y: np.y } : t
+          }),
+          labels: (c.labels ?? []).map((l) => {
+            const np = newPos.get(l.id)
+            return np ? { ...l, x: np.x, y: np.y } : l
+          }),
+          sections: (c.sections ?? []).map((s) => {
+            const np = newPos.get(s.id)
+            return np ? { ...s, x: np.x, y: np.y } : s
+          }),
+          cards: c.cards.map((cd) => {
+            const secId = cardToSection.get(cd.id)
+            if (secId) {
+              const d = sectionDelta.get(secId)
+              return d ? { ...cd, x: cd.x + d.dx, y: cd.y + d.dy } : cd
+            }
+            const np = newPos.get(cd.id)
+            return np ? { ...cd, x: np.x, y: np.y } : cd
+          }),
+        }
+      }),
+    }))
+    get().persist()
+  },
+
+  deleteUnits: (ids) => {
+    const { activeCanvasId } = get()
+    if (!activeCanvasId) return
+    const cardIds = new Set(ids.cardIds)
+    const labelIds = new Set(ids.labelIds)
+    const sectionIds = new Set(ids.sectionIds)
+    const textIds = new Set(ids.textIds)
+    set((s) => ({
+      canvases: s.canvases.map((c) => {
+        if (c.id !== activeCanvasId) return c
+        return {
+          ...c,
+          cards: c.cards.filter((cd) => !cardIds.has(cd.id)),
+          labels: (c.labels ?? []).filter((l) => !labelIds.has(l.id)),
+          texts: (c.texts ?? []).filter((t) => !textIds.has(t.id)),
+          connections: (c.connections ?? []).filter(
+            (cn) => !cardIds.has(cn.fromCardId) && !cardIds.has(cn.toCardId),
+          ),
+          sections: (c.sections ?? [])
+            .filter((sec) => !sectionIds.has(sec.id))
+            .map((sec) => {
+              const members = sec.cardIds ?? []
+              const kept = members.filter((id) => !cardIds.has(id))
+              return kept.length !== members.length ? { ...sec, cardIds: kept } : sec
+            }),
+        }
+      }),
+      editingCardId: s.editingCardId && cardIds.has(s.editingCardId) ? null : s.editingCardId,
+      editingTextId: s.editingTextId && textIds.has(s.editingTextId) ? null : s.editingTextId,
+    }))
+    get().persist()
+  },
+
+  nudgeUnits: (ids, dx, dy) => {
+    const { activeCanvasId } = get()
+    if (!activeCanvasId) return
+    if (dx === 0 && dy === 0) return
+    const labelIds = new Set(ids.labelIds)
+    const sectionIds = new Set(ids.sectionIds)
+    const textIds = new Set(ids.textIds)
+    // 选中分区的成员卡片随分区一起移动（与拖动分区 moveSection 行为一致）；
+    // 用 Set 与直接选中的卡片去重，避免成员卡片被移动两次。
+    const cardIds = new Set(ids.cardIds)
+    const canvas = get().canvases.find((c) => c.id === activeCanvasId)
+    for (const sec of (canvas?.sections ?? [])) {
+      if (sectionIds.has(sec.id)) for (const cid of (sec.cardIds ?? [])) cardIds.add(cid)
+    }
+    set((s) => ({
+      canvases: s.canvases.map((c) => {
+        if (c.id !== activeCanvasId) return c
+        return {
+          ...c,
+          cards: c.cards.map((cd) => cardIds.has(cd.id) ? { ...cd, x: cd.x + dx, y: cd.y + dy } : cd),
+          labels: (c.labels ?? []).map((l) => labelIds.has(l.id) ? { ...l, x: l.x + dx, y: l.y + dy } : l),
+          texts: (c.texts ?? []).map((t) => textIds.has(t.id) ? { ...t, x: t.x + dx, y: t.y + dy } : t),
+          sections: (c.sections ?? []).map((sec) => sectionIds.has(sec.id) ? { ...sec, x: sec.x + dx, y: sec.y + dy } : sec),
+        }
+      }),
+    }))
+    get().persist()
+  },
+
   addConnection: (fromCardId, toCardId) => {
     const { activeCanvasId } = get()
     if (!activeCanvasId || fromCardId === toCardId) return
@@ -949,6 +1254,16 @@ export function useActiveLabels() {
     (s) => {
       const c = s.canvases.find((c) => c.id === s.activeCanvasId)
       return c?.labels ?? []
+    },
+    (a, b) => a === b,
+  )
+}
+
+export function useActiveTexts() {
+  return useStore(
+    (s) => {
+      const c = s.canvases.find((c) => c.id === s.activeCanvasId)
+      return c?.texts ?? []
     },
     (a, b) => a === b,
   )

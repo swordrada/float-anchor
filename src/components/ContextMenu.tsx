@@ -4,6 +4,7 @@ export interface MenuItem {
   label: string
   icon?: React.ReactNode
   danger?: boolean
+  shortcut?: string
   onClick: () => void
 }
 
@@ -54,6 +55,7 @@ export default function ContextMenu({ x, y, items, onClose }: Props) {
         >
           {item.icon && <span className="context-menu-icon">{item.icon}</span>}
           <span>{item.label}</span>
+          {item.shortcut && <span className="context-menu-shortcut">{item.shortcut}</span>}
         </button>
       ))}
     </div>

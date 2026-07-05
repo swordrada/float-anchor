@@ -6,12 +6,13 @@ interface Props {
   section: Section
   scale: number
   selected?: boolean
+  onSelect?: (id: string) => void
 }
 
 const SECTION_PAD = 24
 const HEADER_H = 36
 
-const SectionBox = React.memo(function SectionBox({ section, scale, selected }: Props) {
+const SectionBox = React.memo(function SectionBox({ section, scale, selected, onSelect }: Props) {
   const updateSection = useStore((s) => s.updateSection)
   const deleteSection = useStore((s) => s.deleteSection)
   const moveSection = useStore((s) => s.moveSection)
@@ -64,6 +65,7 @@ const SectionBox = React.memo(function SectionBox({ section, scale, selected }: 
     if (selected) return
     e.stopPropagation()
     e.preventDefault()
+    onSelect?.(section.id) // 点分区标题栏即选中（随后仍可拖动）；选中后按 F 可执行分区最佳大小
     setIsDragging(true)
     const s = scale
     let prevX = e.clientX
@@ -89,7 +91,7 @@ const SectionBox = React.memo(function SectionBox({ section, scale, selected }: 
     }
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
-  }, [isEditing, section.id, scale, moveSection, selected])
+  }, [isEditing, section.id, scale, moveSection, selected, onSelect])
 
   const handleResizeStart = useCallback((e: React.MouseEvent, corner: 'br' | 'bl' | 'tr' | 'tl') => {
     if (e.button !== 0) return

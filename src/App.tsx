@@ -1,19 +1,19 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { useStore } from './store'
+import { useStore, getEffectiveProvider } from './store'
 import Sidebar from './components/Sidebar'
 import CanvasView from './components/CanvasView'
 import SettingsModal from './components/SettingsModal'
-import type { WebDAVConfig, WebDAVSyncResult } from './types'
+import type { WebDAVSyncResult } from './types'
 
 const SIDEBAR_MIN = 180
 const SIDEBAR_MAX = 400
 const SIDEBAR_DEFAULT = 228
-const BACKGROUND_SYNC_INTERVAL_MS = 10000
+const BACKGROUND_SYNC_INTERVAL_MS = 30000
 
 export default function App() {
   const { loaded, loadData, loadSettings } = useStore()
   const showSettings = useStore((s) => s.showSettings)
-  const webdavConfig = useStore((s) => s.settings.webdav)
+  const syncProvider = useStore((s) => getEffectiveProvider(s.settings))
   const syncDecision = useStore((s) => s.syncDecision)
   const [platform, setPlatform] = useState<string>('darwin')
   const [sidebarWidth, setSidebarWidth] = useState(SIDEBAR_DEFAULT)
@@ -59,7 +59,7 @@ export default function App() {
   ) => {
     const store = useStore.getState()
     if (!res.success) {
-      store.setSyncStatus('error')
+      store.setSyncStatus('error', res.error)
       return
     }
 
@@ -99,11 +99,11 @@ export default function App() {
       if (disposed) return
 
       const { settings } = useStore.getState()
-      if (!settings.webdav?.server) return
+      if (getEffectiveProvider(settings) === 'none') return
 
       try {
         useStore.getState().setSyncStatus('syncing')
-        const res = await window.electronAPI.webdavStartupSync(settings.webdav)
+        const res = await window.electronAPI.syncStartup()
         if (disposed) return
 
         await applySyncResult(res, { openSettingsOnDecision: true })
@@ -120,12 +120,12 @@ export default function App() {
     }
   }, [applySyncResult, loadData, loadSettings])
 
-  const runBackgroundSync = useCallback(async (config: WebDAVConfig) => {
+  const runBackgroundSync = useCallback(async () => {
     if (backgroundSyncingRef.current) return
     if (useStore.getState().syncDecision) return
     backgroundSyncingRef.current = true
     try {
-      const res = await window.electronAPI.webdavPeriodicSync(config)
+      const res = await window.electronAPI.syncPeriodic()
       await applySyncResult(res, { openSettingsOnDecision: true })
     } catch {
       useStore.getState().setSyncStatus('error')
@@ -135,12 +135,12 @@ export default function App() {
   }, [applySyncResult])
 
   useEffect(() => {
-    if (!webdavConfig?.server || syncDecision) return
+    if (syncProvider === 'none' || syncDecision) return
     const timer = window.setInterval(() => {
-      void runBackgroundSync(webdavConfig)
+      void runBackgroundSync()
     }, BACKGROUND_SYNC_INTERVAL_MS)
     return () => window.clearInterval(timer)
-  }, [runBackgroundSync, syncDecision, webdavConfig?.server, webdavConfig?.username, webdavConfig?.password])
+  }, [runBackgroundSync, syncDecision, syncProvider])
 
   useEffect(() => {
     return () => {

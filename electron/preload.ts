@@ -25,14 +25,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getResumeProgress: (assetName: string) =>
     ipcRenderer.invoke('get-resume-progress', assetName),
   checkUpdate: () => ipcRenderer.invoke('check-update'),
-  webdavTest: (config: any) => ipcRenderer.invoke('webdav-test', config),
-  webdavUpload: (config: any) => ipcRenderer.invoke('webdav-upload', config),
-  webdavDownload: (config: any) => ipcRenderer.invoke('webdav-download', config),
-  webdavAutoSync: (config: any) => ipcRenderer.invoke('webdav-auto-sync', config),
-  webdavStartupSync: (config: any) => ipcRenderer.invoke('webdav-startup-sync', config),
-  webdavPeriodicSync: (config: any) => ipcRenderer.invoke('webdav-periodic-sync', config),
-  webdavResolveConflict: (config: any, resolution: 'keep-local' | 'use-remote') =>
-    ipcRenderer.invoke('webdav-resolve-conflict', config, resolution),
+  syncTest: (config: any) => ipcRenderer.invoke('sync-test', config),
+  syncAuto: () => ipcRenderer.invoke('sync-auto'),
+  syncStartup: () => ipcRenderer.invoke('sync-startup'),
+  syncPeriodic: () => ipcRenderer.invoke('sync-periodic'),
+  syncResolveConflict: (resolution: 'keep-local' | 'use-remote') =>
+    ipcRenderer.invoke('sync-resolve-conflict', resolution),
   onSyncStatus: (cb: (status: any) => void) => {
     ipcRenderer.on('sync-status', (_e, status) => cb(status))
   },
@@ -42,4 +40,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   prepareClearAllData: () => ipcRenderer.invoke('prepare-clear-all-data'),
   clearAllData: () => ipcRenderer.invoke('clear-all-data'),
   getBackupDir: () => ipcRenderer.invoke('get-backup-dir'),
+  githubTest: (c: { repo: string; token: string; branch?: string }) => ipcRenderer.invoke('github-test', c),
+  githubSaveToken: (token: string) => ipcRenderer.invoke('github-save-token', token),
+  githubClearToken: () => ipcRenderer.invoke('github-clear-token'),
+  githubHasToken: () => ipcRenderer.invoke('github-has-token'),
+  githubAccount: () => ipcRenderer.invoke('github-account'),
+  saveImage: (bytes: ArrayBuffer, mime?: string) => ipcRenderer.invoke('save-image', bytes, mime),
+  migrateEmbeddedImages: () => ipcRenderer.invoke('migrate-embedded-images'),
 })

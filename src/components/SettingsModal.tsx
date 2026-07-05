@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useStore } from '../store'
+import { useStore, getEffectiveProvider } from '../store'
 import type { WebDAVConfig, WebDAVSyncResolution, WebDAVSyncResult, WebDAVSyncSummary } from '../types'
+import { SHORTCUTS, scKey } from '../shortcuts'
 
 export default function SettingsModal() {
   const settings = useStore((s) => s.settings)
@@ -19,9 +20,34 @@ export default function SettingsModal() {
   const [clearInput, setClearInput] = useState('')
   const [clearStatus, setClearStatus] = useState<'idle' | 'preparing' | 'no-backup' | 'ready' | 'clearing' | 'done'>('idle')
   const [clearMessage, setClearMessage] = useState('')
+  const [migrateStatus, setMigrateStatus] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
+  const [migrateMessage, setMigrateMessage] = useState('')
 
   const CLEAR_CONFIRM_TEXT = '我已明确该操作会清空所有内容，执行'
   const formatBackupTime = (ts?: number) => ts ? new Date(ts).toLocaleString('zh-CN') : '未知时间'
+
+  const fmtKB = (b?: number) => b == null ? '?' : (b / 1024 >= 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.round(b / 1024)} KB`)
+
+  const handleMigrateImages = useCallback(async () => {
+    setMigrateStatus('running'); setMigrateMessage('')
+    try {
+      await useStore.getState().flushPendingSave()
+      const res = await window.electronAPI.migrateEmbeddedImages()
+      if (res.success) {
+        await useStore.getState().loadData()
+        useStore.getState().refreshImageCache()
+        setMigrateStatus('done')
+        setMigrateMessage(res.count ? `已提取 ${res.count} 张内嵌图，数据从 ${fmtKB(res.beforeBytes)} 缩到 ${fmtKB(res.afterBytes)}` : '没有发现内嵌图片')
+        setTimeout(() => { setMigrateStatus('idle'); setMigrateMessage('') }, 8000)
+      } else {
+        setMigrateStatus('error'); setMigrateMessage(res.error || '提取失败')
+        setTimeout(() => { setMigrateStatus('idle'); setMigrateMessage('') }, 6000)
+      }
+    } catch {
+      setMigrateStatus('error'); setMigrateMessage('提取时发生错误')
+      setTimeout(() => { setMigrateStatus('idle'); setMigrateMessage('') }, 6000)
+    }
+  }, [])
 
   const handleExport = useCallback(async () => {
     setBackupStatus('exporting')
@@ -211,9 +237,30 @@ export default function SettingsModal() {
   const [connected, setConnected] = useState(!!settings.webdav?.server)
   const [syncResolveLoading, setSyncResolveLoading] = useState<WebDAVSyncResolution | null>(null)
 
-  const formatSyncSummary = useCallback((summary: WebDAVSyncSummary) => {
-    return `${summary.canvasCount} 个画布 / ${summary.cardCount} 张卡片 / ${summary.labelCount} 个标题 / ${summary.sectionCount} 个分区 / ${summary.connectionCount} 条连线`
+  // GitHub state
+  const [ghRepo, setGhRepo] = useState(settings.github?.repo || '')
+  const [ghBranch, setGhBranch] = useState(settings.github?.branch || 'main')
+  const [ghToken, setGhToken] = useState('')
+  const [ghConnected, setGhConnected] = useState(false)
+  const [ghAccount, setGhAccount] = useState<string | null>(null)
+  const [ghTest, setGhTest] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle')
+
+  useEffect(() => {
+    window.electronAPI.githubHasToken().then((r) => {
+      setGhConnected(r.has)
+      if (r.has) window.electronAPI.githubAccount().then((a) => setGhAccount(a.login))
+    })
   }, [])
+
+  const formatSyncSummary = useCallback((summary: WebDAVSyncSummary) => {
+    return `${summary.canvasCount} 个画布 / ${summary.cardCount} 张卡片 / ${summary.labelCount} 个标题 / ${summary.sectionCount} 个分区 / ${summary.connectionCount} 条连线 / ${summary.textCount} 个文本框`
+  }, [])
+
+  // 当前真实生效的 provider（来自已保存的 settings）
+  const syncProvider = getEffectiveProvider(settings)
+  // 当前查看的标签页（本地状态，与真实生效 provider 分离）：
+  // 点 WebDAV/GitHub 标签只切换面板，不改生效 provider；只有保存/连接成功才真正切换。
+  const [activeTab, setActiveTab] = useState(syncProvider)
 
   const markSyncSuccess = useCallback(() => {
     useStore.getState().setSyncStatus('success')
@@ -227,7 +274,7 @@ export default function SettingsModal() {
   const applySyncResult = useCallback(async (syncRes: WebDAVSyncResult) => {
     const store = useStore.getState()
     if (!syncRes.success) {
-      store.setSyncStatus('error')
+      store.setSyncStatus('error', syncRes.error)
       return
     }
 
@@ -252,6 +299,28 @@ export default function SettingsModal() {
     store.setSyncStatus('idle')
   }, [markSyncSuccess])
 
+  const handleGithubSave = useCallback(async () => {
+    if (!ghRepo.trim() || !ghToken.trim()) return
+    setGhTest('testing')
+    const res = await window.electronAPI.githubTest({ repo: ghRepo.trim(), token: ghToken.trim(), branch: ghBranch.trim() || 'main' })
+    if (!res.success) { setGhTest('fail'); setTimeout(() => setGhTest('idle'), 3000); return }
+    setGhTest('ok')
+    await window.electronAPI.githubSaveToken(ghToken.trim())
+    const s = { ...useStore.getState().settings, github: { repo: ghRepo.trim(), branch: ghBranch.trim() || 'main' } }
+    await useStore.getState().saveSettings(s)
+    useStore.getState().setSyncProvider('github')
+    setGhConnected(true); setGhToken(''); setGhTest('idle')
+    window.electronAPI.githubAccount().then((a) => setGhAccount(a.login))
+    useStore.getState().setSyncStatus('syncing')
+    window.electronAPI.syncAuto().then((r) => applySyncResult(r)).catch(() => useStore.getState().setSyncStatus('error', '同步失败'))
+  }, [applySyncResult, ghRepo, ghBranch, ghToken])
+
+  const handleGithubDisconnect = useCallback(async () => {
+    await window.electronAPI.githubClearToken()
+    useStore.getState().setSyncProvider('none')
+    setGhConnected(false); setGhAccount(null)
+  }, [])
+
   useEffect(() => {
     if (settings.webdav) {
       setServer(settings.webdav.server)
@@ -265,7 +334,7 @@ export default function SettingsModal() {
     if (!server || !username || !password) return
     setTestResult('testing')
     const config: WebDAVConfig = { server, username, password }
-    const res = await window.electronAPI.webdavTest(config)
+    const res = await window.electronAPI.syncTest(config)
     setTestResult(res.success ? 'ok' : 'fail')
     setTimeout(() => setTestResult('idle'), 3000)
   }, [server, username, password])
@@ -273,14 +342,15 @@ export default function SettingsModal() {
   const handleSave = useCallback(async () => {
     if (!server || !username || !password) return
     const config: WebDAVConfig = { server, username, password }
-    const res = await window.electronAPI.webdavTest(config)
+    const res = await window.electronAPI.syncTest(config)
     if (res.success) {
       setWebDAVConfig(config)
+      useStore.getState().saveSettings({ ...useStore.getState().settings, webdav: config, syncProvider: 'webdav' })
       setConnected(true)
       setTestResult('ok')
       setTimeout(() => setTestResult('idle'), 2000)
       useStore.getState().setSyncStatus('syncing')
-      window.electronAPI.webdavAutoSync(config).then(async (syncRes) => {
+      window.electronAPI.syncAuto().then(async (syncRes) => {
         await applySyncResult(syncRes)
       }).catch(() => useStore.getState().setSyncStatus('error'))
     } else {
@@ -290,8 +360,7 @@ export default function SettingsModal() {
   }, [applySyncResult, server, username, password, setWebDAVConfig])
 
   const handleManualSync = useCallback(async () => {
-    const cfg = settings.webdav
-    if (!cfg?.server) return
+    if (getEffectiveProvider(settings) === 'none') return
     const store = useStore.getState()
     store.setSyncStatus('syncing')
     try {
@@ -299,16 +368,15 @@ export default function SettingsModal() {
         canvases: store.canvases,
         activeCanvasId: store.activeCanvasId,
       })
-      const res = await window.electronAPI.webdavStartupSync(cfg)
+      const res = await window.electronAPI.syncStartup()
       await applySyncResult(res)
     } catch {
       store.setSyncStatus('error')
     }
-  }, [applySyncResult, settings.webdav])
+  }, [applySyncResult, settings])
 
   const handleResolveSync = useCallback(async (resolution: WebDAVSyncResolution) => {
-    const cfg = settings.webdav
-    if (!cfg?.server) return
+    if (getEffectiveProvider(settings) === 'none') return
     if (resolution === 'use-remote' && syncDecision?.risk === 'high') {
       const confirmed = window.confirm(
         `这是高危覆盖操作。\n\n本地：${formatSyncSummary(syncDecision.localSummary)}\n云端：${formatSyncSummary(syncDecision.remoteSummary)}\n\n继续后，当前本地大量数据会被云端覆盖。确定继续吗？`,
@@ -319,17 +387,18 @@ export default function SettingsModal() {
     setSyncResolveLoading(resolution)
     useStore.getState().setSyncStatus('syncing')
     try {
-      const res = await window.electronAPI.webdavResolveConflict(cfg, resolution)
+      const res = await window.electronAPI.syncResolveConflict(resolution)
       await applySyncResult(res)
     } catch {
       useStore.getState().setSyncStatus('error')
     } finally {
       setSyncResolveLoading(null)
     }
-  }, [applySyncResult, formatSyncSummary, settings.webdav, syncDecision])
+  }, [applySyncResult, formatSyncSummary, settings, syncDecision])
 
   const handleDisconnect = useCallback(() => {
     setWebDAVConfig(undefined)
+    useStore.getState().setSyncProvider('none')
     setSyncDecision(null)
     useStore.getState().setSyncStatus('idle')
     setConnected(false)
@@ -350,7 +419,7 @@ export default function SettingsModal() {
     ? '已同步'
     : syncStatus === 'error'
     ? '同步失败'
-    : connected ? '已连接' : '未连接'
+    : (connected || ghConnected) ? '已连接' : '未连接'
 
   const syncDotClass = syncStatus === 'syncing'
     ? 'syncing'
@@ -358,7 +427,7 @@ export default function SettingsModal() {
     ? 'warning'
     : syncStatus === 'error'
     ? 'error'
-    : connected ? 'connected' : ''
+    : (connected || ghConnected) ? 'connected' : ''
 
   return (
     <div className="settings-overlay" onClick={handleOverlayClick}>
@@ -394,6 +463,18 @@ export default function SettingsModal() {
               </svg>
               Dark
             </button>
+          </div>
+        </div>
+
+        <div className="settings-section">
+          <h3>键盘快捷键</h3>
+          <div className="shortcut-list">
+            {SHORTCUTS.map((s) => (
+              <div className="shortcut-row" key={s.id}>
+                <span className="shortcut-label">{s.label}</span>
+                <span className="shortcut-key">{scKey(s.id)}</span>
+              </div>
+            ))}
           </div>
         </div>
 
@@ -445,91 +526,149 @@ export default function SettingsModal() {
         </div>
 
         <div className="settings-section">
-          <h3>云同步 — 坚果云 (WebDAV)</h3>
-          <div className="webdav-form">
-            <div className="webdav-field">
-              <label>服务器地址</label>
-              <input
-                value={server}
-                onChange={(e) => setServer(e.target.value)}
-                placeholder="https://dav.jianguoyun.com/dav/"
-              />
-            </div>
-            <div className="webdav-field">
-              <label>账号（邮箱）</label>
-              <input
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="your@email.com"
-              />
-            </div>
-            <div className="webdav-field">
-              <label>应用密码</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="在坚果云后台生成"
-              />
-            </div>
-            <div className="webdav-actions">
-              <button onClick={handleTest} disabled={testResult === 'testing'}>
-                {testResult === 'testing' ? '测试中...' : testResult === 'ok' ? '连接成功' : testResult === 'fail' ? '连接失败' : '测试连接'}
-              </button>
-              <button className="primary" onClick={handleSave}>保存</button>
-              {connected && (
+          <h3>云同步</h3>
+          <div className="provider-switcher">
+            <button
+              className={`provider-option ${activeTab === 'webdav' ? 'active' : ''}`}
+              onClick={() => setActiveTab('webdav')}
+            >
+              坚果云 WebDAV{syncProvider === 'webdav' ? ' ✓' : ''}
+            </button>
+            <button
+              className={`provider-option ${activeTab === 'github' ? 'active' : ''}`}
+              onClick={() => setActiveTab('github')}
+            >
+              GitHub{syncProvider === 'github' ? ' ✓' : ''}
+            </button>
+            <button
+              className={`provider-option ${activeTab === 'none' ? 'active' : ''}`}
+              onClick={() => { setActiveTab('none'); useStore.getState().setSyncProvider('none') }}
+            >
+              关闭{syncProvider === 'none' ? ' ✓' : ''}
+            </button>
+          </div>
+
+          {activeTab === 'github' && (
+            <div className="github-panel">
+              {ghConnected ? (
                 <>
-                  <button onClick={handleManualSync} disabled={syncStatus === 'syncing' || !!syncDecision || !!syncResolveLoading}>
-                    {syncStatus === 'syncing' ? '同步中...' : syncDecision ? '待确认' : '同步'}
-                  </button>
-                  <button onClick={handleDisconnect}>断开</button>
+                  <div className="onedrive-account">已连接：{ghAccount || 'GitHub'} · {settings.github?.repo}</div>
+                  <div className="webdav-actions">
+                    <button onClick={handleManualSync} disabled={syncStatus === 'syncing' || !!syncDecision}>同步</button>
+                    <button onClick={handleGithubDisconnect}>断开</button>
+                  </div>
+                  <div className="data-hint">提交历史可在 GitHub 仓库网页查看。</div>
+                </>
+              ) : (
+                <>
+                  <div className="webdav-field"><label>仓库 (owner/repo)</label>
+                    <input value={ghRepo} onChange={(e) => setGhRepo(e.target.value)} placeholder="yourname/float-anchor-data" /></div>
+                  <div className="webdav-field"><label>分支</label>
+                    <input value={ghBranch} onChange={(e) => setGhBranch(e.target.value)} placeholder="main" /></div>
+                  <div className="webdav-field"><label>访问令牌 (PAT)</label>
+                    <input type="password" value={ghToken} onChange={(e) => setGhToken(e.target.value)} placeholder="fine-grained PAT, Contents 读写" /></div>
+                  <div className="webdav-actions">
+                    <button className="primary" onClick={handleGithubSave} disabled={ghTest === 'testing'}>
+                      {ghTest === 'testing' ? '连接中...' : ghTest === 'fail' ? '连接失败' : '连接并保存'}
+                    </button>
+                  </div>
+                  <div className="data-hint">在 GitHub → Settings → Developer settings → Fine-grained tokens 生成，仅授予该仓库 Contents 读写。</div>
                 </>
               )}
             </div>
-            <div className="sync-status">
-              <span className={`sync-dot ${syncDotClass}`} />
-              <span>{syncLabel}</span>
-            </div>
-            {syncDecision && (
-              <div className={`sync-decision-card ${syncDecision.risk === 'high' ? 'high-risk' : ''}`}>
-                <div className="sync-decision-title">
-                  {syncDecision.risk === 'high' ? '检测到高危云端覆盖' : '检测到云端与本地数据不同步'}
-                </div>
-                <div className={`data-message ${syncDecision.risk === 'high' ? 'error' : 'success'}`}>
-                  {syncDecision.message}
-                </div>
-                <div className="sync-decision-summary">
-                  <div className="sync-decision-row">
-                    <span className="sync-decision-label">本地</span>
-                    <span>{formatSyncSummary(syncDecision.localSummary)}</span>
-                  </div>
-                  <div className="sync-decision-row">
-                    <span className="sync-decision-label">云端</span>
-                    <span>{formatSyncSummary(syncDecision.remoteSummary)}</span>
-                  </div>
-                </div>
-                <div className="sync-decision-note">
-                  当前仍以本地数据为准展示，自动同步已暂停，等你确认后再继续。
-                </div>
-                <div className="sync-decision-actions">
-                  <button
-                    className="primary"
-                    onClick={() => handleResolveSync('keep-local')}
-                    disabled={!!syncResolveLoading}
-                  >
-                    {syncResolveLoading === 'keep-local' ? '上传中...' : '保留本地并上传云端'}
-                  </button>
-                  <button
-                    className={syncDecision.risk === 'high' ? 'danger' : ''}
-                    onClick={() => handleResolveSync('use-remote')}
-                    disabled={!!syncResolveLoading}
-                  >
-                    {syncResolveLoading === 'use-remote' ? '覆盖中...' : '使用云端覆盖本地'}
-                  </button>
-                </div>
+          )}
+
+          {activeTab === 'webdav' && (
+            <div className="webdav-form">
+              <div className="webdav-field">
+                <label>服务器地址</label>
+                <input
+                  value={server}
+                  onChange={(e) => setServer(e.target.value)}
+                  placeholder="https://dav.jianguoyun.com/dav/"
+                />
               </div>
-            )}
-          </div>
+              <div className="webdav-field">
+                <label>账号（邮箱）</label>
+                <input
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="your@email.com"
+                />
+              </div>
+              <div className="webdav-field">
+                <label>应用密码</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="在坚果云后台生成"
+                />
+              </div>
+              <div className="webdav-actions">
+                <button onClick={handleTest} disabled={testResult === 'testing'}>
+                  {testResult === 'testing' ? '测试中...' : testResult === 'ok' ? '连接成功' : testResult === 'fail' ? '连接失败' : '测试连接'}
+                </button>
+                <button className="primary" onClick={handleSave}>保存</button>
+                {connected && (
+                  <>
+                    <button onClick={handleManualSync} disabled={syncStatus === 'syncing' || !!syncDecision || !!syncResolveLoading}>
+                      {syncStatus === 'syncing' ? '同步中...' : syncDecision ? '待确认' : '同步'}
+                    </button>
+                    <button onClick={handleDisconnect}>断开</button>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {syncProvider !== 'none' && (
+            <>
+              <div className="sync-status">
+                <span className={`sync-dot ${syncDotClass}`} />
+                <span>{syncLabel}</span>
+              </div>
+              {syncDecision && (
+                <div className={`sync-decision-card ${syncDecision.risk === 'high' ? 'high-risk' : ''}`}>
+                  <div className="sync-decision-title">
+                    {syncDecision.risk === 'high' ? '检测到高危云端覆盖' : '检测到云端与本地数据不同步'}
+                  </div>
+                  <div className={`data-message ${syncDecision.risk === 'high' ? 'error' : 'success'}`}>
+                    {syncDecision.message}
+                  </div>
+                  <div className="sync-decision-summary">
+                    <div className="sync-decision-row">
+                      <span className="sync-decision-label">本地</span>
+                      <span>{formatSyncSummary(syncDecision.localSummary)}</span>
+                    </div>
+                    <div className="sync-decision-row">
+                      <span className="sync-decision-label">云端</span>
+                      <span>{formatSyncSummary(syncDecision.remoteSummary)}</span>
+                    </div>
+                  </div>
+                  <div className="sync-decision-note">
+                    当前仍以本地数据为准展示，自动同步已暂停，等你确认后再继续。
+                  </div>
+                  <div className="sync-decision-actions">
+                    <button
+                      className="primary"
+                      onClick={() => handleResolveSync('keep-local')}
+                      disabled={!!syncResolveLoading}
+                    >
+                      {syncResolveLoading === 'keep-local' ? '上传中...' : '保留本地并上传云端'}
+                    </button>
+                    <button
+                      className={syncDecision.risk === 'high' ? 'danger' : ''}
+                      onClick={() => handleResolveSync('use-remote')}
+                      disabled={!!syncResolveLoading}
+                    >
+                      {syncResolveLoading === 'use-remote' ? '覆盖中...' : '使用云端覆盖本地'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
         </div>
 
         <div className="settings-section">
@@ -576,6 +715,15 @@ export default function SettingsModal() {
               <div className={`data-message ${importStatus === 'error' ? 'error' : 'success'}`}>
                 {importMessage}
               </div>
+            )}
+            <div className="data-management-item">
+              <button className="data-btn" onClick={handleMigrateImages} disabled={migrateStatus === 'running'}>
+                {migrateStatus === 'running' ? '提取中...' : '提取内嵌图片为文件'}
+              </button>
+              <span className="data-hint">把笔记里 base64 内嵌的图片抽成本地文件，显著减小数据体积</span>
+            </div>
+            {migrateMessage && (
+              <div className={`data-message ${migrateStatus === 'error' ? 'error' : 'success'}`}>{migrateMessage}</div>
             )}
             <div className="data-management-danger">
               <button

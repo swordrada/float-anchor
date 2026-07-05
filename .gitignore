@@ -7,3 +7,6 @@ release/
 Thumbs.db
 build/icon.iconset/
 build/icon-solid.png
+
+# 流程产物（设计/计划文档），不纳入版本库
+docs/

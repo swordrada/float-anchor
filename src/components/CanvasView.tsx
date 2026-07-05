@@ -1,12 +1,15 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from 'react'
-import { useStore, useActiveCanvasMeta, useActiveCards, useActiveConnections, useActiveLabels, useActiveSections, useHighlightCard, useSettings } from '../store'
+import { useStore, useActiveCanvasMeta, useActiveCards, useActiveConnections, useActiveLabels, useActiveSections, useHighlightCard, useSettings, useActiveTexts } from '../store'
 import NoteCard from './NoteCard'
 import CanvasLabelComponent from './CanvasLabel'
+import TextBoxComponent from './TextBox'
 import SectionBox from './SectionBox'
 import ContextMenu from './ContextMenu'
 import MoveToModal from './MoveToModal'
-import type { Card, Connection, Section, CanvasLabel } from '../types'
+import ConfirmModal from './ConfirmModal'
+import type { Card, Connection, Section, CanvasLabel, TextBox } from '../types'
 import type { MenuItem } from './ContextMenu'
+import { scKey } from '../shortcuts'
 
 const MIN_SCALE = 0.15
 const MAX_SCALE = 3
@@ -17,14 +20,15 @@ interface SelectionSet {
   cardIds: Set<string>
   labelIds: Set<string>
   sectionIds: Set<string>
+  textIds: Set<string>
 }
 
 function emptySelection(): SelectionSet {
-  return { cardIds: new Set(), labelIds: new Set(), sectionIds: new Set() }
+  return { cardIds: new Set(), labelIds: new Set(), sectionIds: new Set(), textIds: new Set() }
 }
 
 function selectionEmpty(sel: SelectionSet): boolean {
-  return sel.cardIds.size === 0 && sel.labelIds.size === 0 && sel.sectionIds.size === 0
+  return sel.cardIds.size === 0 && sel.labelIds.size === 0 && sel.sectionIds.size === 0 && sel.textIds.size === 0
 }
 
 function rectsIntersect(
@@ -46,6 +50,7 @@ function computeSelection(
   cards: Card[],
   labels: CanvasLabel[],
   sections: Section[],
+  texts: TextBox[],
 ): SelectionSet {
   const sel = emptySelection()
 
@@ -63,6 +68,13 @@ function computeSelection(
     }
   }
 
+  for (const t of texts) {
+    const th = t.height ?? 24
+    if (rectsIntersect(selRect.x, selRect.y, selRect.w, selRect.h, t.x, t.y, t.width, th)) {
+      sel.textIds.add(t.id)
+    }
+  }
+
   for (const sec of sections) {
     if (rectContains(selRect.x, selRect.y, selRect.w, selRect.h, sec.x, sec.y, sec.width, sec.height)) {
       sel.sectionIds.add(sec.id)
@@ -72,6 +84,48 @@ function computeSelection(
   }
 
   return sel
+}
+
+function pointInSelection(
+  coords: { x: number; y: number },
+  sel: SelectionSet,
+  cards: Card[],
+  labels: CanvasLabel[],
+  sections: Section[],
+  texts: TextBox[],
+): boolean {
+  for (const id of sel.cardIds) {
+    const c = cards.find((x) => x.id === id)
+    if (c && coords.x >= c.x && coords.x <= c.x + c.width &&
+        coords.y >= c.y && coords.y <= c.y + (c.height ?? 200)) return true
+  }
+  for (const id of sel.labelIds) {
+    const l = labels.find((x) => x.id === id)
+    if (l && coords.x >= l.x && coords.x <= l.x + l.width &&
+        coords.y >= l.y && coords.y <= l.y + 40) return true
+  }
+  for (const id of sel.sectionIds) {
+    const s = sections.find((x) => x.id === id)
+    if (s && coords.x >= s.x && coords.x <= s.x + s.width &&
+        coords.y >= s.y && coords.y <= s.y + s.height) return true
+  }
+  for (const id of sel.textIds) {
+    const t = texts.find((x) => x.id === id)
+    if (t && coords.x >= t.x && coords.x <= t.x + t.width &&
+        coords.y >= t.y && coords.y <= t.y + (t.height ?? 24)) return true
+  }
+  return false
+}
+
+function arrangeableUnitCount(sel: SelectionSet, sections: Section[]): number {
+  const memberOfSelected = new Set<string>()
+  for (const sid of sel.sectionIds) {
+    const s = sections.find((x) => x.id === sid)
+    for (const cid of (s?.cardIds ?? [])) memberOfSelected.add(cid)
+  }
+  let cards = 0
+  for (const cid of sel.cardIds) if (!memberOfSelected.has(cid)) cards++
+  return sel.textIds.size + sel.labelIds.size + sel.sectionIds.size + cards
 }
 
 function findDensestCenter(cards: Card[]): { cx: number; cy: number; clusterCards: Card[] } | null {
@@ -133,6 +187,11 @@ export default function CanvasView() {
   const addConnection = useStore((s) => s.addConnection)
   const deleteConnection = useStore((s) => s.deleteConnection)
   const addLabel = useStore((s) => s.addLabel)
+  const addText = useStore((s) => s.addText)
+  const arrangeUnits = useStore((s) => s.arrangeUnits)
+  const deleteUnits = useStore((s) => s.deleteUnits)
+  const nudgeUnits = useStore((s) => s.nudgeUnits)
+  const setEditingText = useStore((s) => s.setEditingText)
   const addSection = useStore((s) => s.addSection)
   const compactSection = useStore((s) => s.compactSection)
   const highlightCardId = useHighlightCard()
@@ -142,6 +201,7 @@ export default function CanvasView() {
   const cards = useActiveCards()
   const connections = useActiveConnections()
   const labels = useActiveLabels()
+  const texts = useActiveTexts()
   const sections = useActiveSections()
   const settings = useSettings()
   const arrowColor = settings.theme === 'dark' ? '#888' : '#bbb'
@@ -165,6 +225,7 @@ export default function CanvasView() {
 
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
   const [moveModalCardId, setMoveModalCardId] = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<{ cardIds: string[]; labelIds: string[]; sectionIds: string[]; textIds: string[] } | null>(null)
   const [connectingFrom, setConnectingFrom] = useState<string | null>(null)
   const [connectingMouse, setConnectingMouse] = useState<{ x: number; y: number } | null>(null)
   const [hoveredConn, setHoveredConn] = useState<string | null>(null)
@@ -331,6 +392,39 @@ export default function CanvasView() {
     }
   }, [])
 
+  const viewportCenterCanvasCoords = useCallback(() => {
+    const rect = viewportRef.current?.getBoundingClientRect()
+    if (!rect) return { x: 0, y: 0 }
+    return toCanvasCoords(rect.left + rect.width / 2, rect.top + rect.height / 2)
+  }, [toCanvasCoords])
+
+  const zoomAroundCenter = useCallback((factor: number) => {
+    const rect = viewportRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const cx = rect.width / 2
+    const cy = rect.height / 2
+    const s = scaleVal.current
+    const ns = Math.min(Math.max(s * factor, MIN_SCALE), MAX_SCALE)
+    const ratio = ns / s
+    pan.current = { x: Math.round(cx - (cx - pan.current.x) * ratio), y: Math.round(cy - (cy - pan.current.y) * ratio) }
+    scaleVal.current = ns
+    applyTransform()
+    scheduleCull()
+  }, [applyTransform, scheduleCull])
+
+  const resetZoomAroundCenter = useCallback(() => {
+    const rect = viewportRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const cx = rect.width / 2
+    const cy = rect.height / 2
+    const s = scaleVal.current
+    const ratio = 1 / s
+    pan.current = { x: Math.round(cx - (cx - pan.current.x) * ratio), y: Math.round(cy - (cy - pan.current.y) * ratio) }
+    scaleVal.current = 1
+    applyTransform()
+    scheduleCull()
+  }, [applyTransform, scheduleCull])
+
   const lassoRectRef = useRef<{ x: number; y: number; w: number; h: number } | null>(null)
 
   const startLassoListeners = useCallback(() => {
@@ -358,7 +452,8 @@ export default function CanvasView() {
         const curCards = canvas?.cards ?? []
         const curLabels = canvas?.labels ?? []
         const curSections = canvas?.sections ?? []
-        const sel = computeSelection(lassoRectRef.current, curCards, curLabels, curSections)
+        const curTexts = canvas?.texts ?? []
+        const sel = computeSelection(lassoRectRef.current, curCards, curLabels, curSections, curTexts)
         setSelection(sel)
       }
       lassoStart.current = null
@@ -402,33 +497,7 @@ export default function CanvasView() {
 
       if (!selectionEmpty(selection)) {
         const coords = toCanvasCoords(e.clientX, e.clientY)
-        let hitSelected = false
-
-        for (const cid of selection.cardIds) {
-          const c = cards.find((cd) => cd.id === cid)
-          if (c && coords.x >= c.x && coords.x <= c.x + c.width &&
-              coords.y >= c.y && coords.y <= c.y + (c.height ?? 200)) {
-            hitSelected = true; break
-          }
-        }
-        if (!hitSelected) {
-          for (const lid of selection.labelIds) {
-            const l = labels.find((lb) => lb.id === lid)
-            if (l && coords.x >= l.x && coords.x <= l.x + l.width &&
-                coords.y >= l.y && coords.y <= l.y + 40) {
-              hitSelected = true; break
-            }
-          }
-        }
-        if (!hitSelected) {
-          for (const sid of selection.sectionIds) {
-            const sec = sections.find((s) => s.id === sid)
-            if (sec && coords.x >= sec.x && coords.x <= sec.x + sec.width &&
-                coords.y >= sec.y && coords.y <= sec.y + sec.height) {
-              hitSelected = true; break
-            }
-          }
-        }
+        const hitSelected = pointInSelection(coords, selection, cards, labels, sections, texts)
 
         if (hitSelected) {
           e.preventDefault()
@@ -441,7 +510,7 @@ export default function CanvasView() {
         setSelection(emptySelection())
       }
 
-      if (target.closest('.note-card') || target.closest('.canvas-label') || target.closest('.section-header') ||
+      if (target.closest('.note-card') || target.closest('.canvas-label') || target.closest('.canvas-text') || target.closest('.section-header') ||
           target.closest('.section-resize-handle') || target.closest('.card-resize-handle') ||
           target.closest('.conn-delete-btn') || target.closest('.canvas-toolbar')) return
 
@@ -450,7 +519,7 @@ export default function CanvasView() {
       isLassoing.current = false
       startLassoListeners()
     }
-  }, [connectingFrom, addConnection, selection, cards, labels, sections, toCanvasCoords, startLassoListeners])
+  }, [connectingFrom, addConnection, selection, cards, labels, sections, texts, toCanvasCoords, startLassoListeners])
 
   useEffect(() => {
     if (!isPanDragging) return
@@ -492,6 +561,7 @@ export default function CanvasView() {
     const origCards = new Map<string, { x: number; y: number }>()
     const origLabels = new Map<string, { x: number; y: number }>()
     const origSections = new Map<string, { x: number; y: number }>()
+    const origTexts = new Map<string, { x: number; y: number }>()
     if (canvas0) {
       for (const c of canvas0.cards) {
         if (selection.cardIds.has(c.id)) origCards.set(c.id, { x: c.x, y: c.y })
@@ -501,6 +571,9 @@ export default function CanvasView() {
       }
       for (const sec of canvas0.sections ?? []) {
         if (selection.sectionIds.has(sec.id)) origSections.set(sec.id, { x: sec.x, y: sec.y })
+      }
+      for (const t of canvas0.texts ?? []) {
+        if (selection.textIds.has(t.id)) origTexts.set(t.id, { x: t.x, y: t.y })
       }
     }
 
@@ -524,10 +597,14 @@ export default function CanvasView() {
             const orig = origSections.get(sec.id)
             return orig ? { ...sec, x: orig.x + totalDx, y: orig.y + totalDy } : sec
           })
+          const updatedTexts = (canvas.texts ?? []).map((t) => {
+            const orig = origTexts.get(t.id)
+            return orig ? { ...t, x: orig.x + totalDx, y: orig.y + totalDy } : t
+          })
           useStore.setState({
             canvases: store.canvases.map((c) =>
               c.id === store.activeCanvasId
-                ? { ...c, labels: updatedLabels, sections: updatedSections }
+                ? { ...c, labels: updatedLabels, sections: updatedSections, texts: updatedTexts }
                 : c,
             ),
           })
@@ -589,11 +666,15 @@ export default function CanvasView() {
           const orig = origSections.get(sec.id)
           return orig ? { ...sec, x: orig.x + finalDx, y: orig.y + finalDy } : sec
         })
+        const updatedTexts = (canvas.texts ?? []).map((t) => {
+          const orig = origTexts.get(t.id)
+          return orig ? { ...t, x: orig.x + finalDx, y: orig.y + finalDy } : t
+        })
 
         useStore.setState({
           canvases: store.canvases.map((c) =>
             c.id === store.activeCanvasId
-              ? { ...c, cards: updatedCards, labels: updatedLabels, sections: updatedSections }
+              ? { ...c, cards: updatedCards, labels: updatedLabels, sections: updatedSections, texts: updatedTexts }
               : c,
           ),
         })
@@ -617,19 +698,93 @@ export default function CanvasView() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // 编辑输入上下文 / 确认弹窗打开 → 不处理全局快捷键
+      const ae = document.activeElement as HTMLElement | null
+      const typing = !!ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)
+      const st = useStore.getState()
+      if (typing || st.editingCardId || st.editingTextId || confirmDelete) return
+
+      // 连线 / Esc（保留并优先）
       if (e.key === 'Escape') {
         if (connectingFrom) setConnectingFrom(null)
         if (!selectionEmpty(selection)) setSelection(emptySelection())
+        return
       }
       if (e.key === 'Backspace' && connectingFrom) {
         const last = connections[connections.length - 1]
         if (last) deleteConnection(last.id)
         setConnectingFrom(null)
+        return
+      }
+
+      const mod = e.metaKey || e.ctrlKey
+      const k = e.key.toLowerCase()
+      const canvas = st.canvases.find((c) => c.id === st.activeCanvasId)
+      if (!canvas) return
+
+      const selIds = () => ({
+        cardIds: [...selection.cardIds],
+        labelIds: [...selection.labelIds],
+        sectionIds: [...selection.sectionIds],
+        textIds: [...selection.textIds],
+      })
+
+      if (mod && !e.shiftKey && k === 'a') {
+        e.preventDefault()
+        setSelection({
+          cardIds: new Set((canvas.cards ?? []).map((c) => c.id)),
+          labelIds: new Set((canvas.labels ?? []).map((l) => l.id)),
+          sectionIds: new Set((canvas.sections ?? []).map((s) => s.id)),
+          textIds: new Set((canvas.texts ?? []).map((t) => t.id)),
+        })
+        return
+      }
+      if (mod && (k === '=' || k === '+')) { e.preventDefault(); zoomAroundCenter(1.1); return }
+      if (mod && k === '-') { e.preventDefault(); zoomAroundCenter(1 / 1.1); return }
+      if (mod && k === '0') { e.preventDefault(); resetZoomAroundCenter(); return }
+      if (mod) return
+
+      if (k === 'c') { const p = viewportCenterCanvasCoords(); addCard(p.x - 186, p.y - 40); return }
+      if (k === 't') { const p = viewportCenterCanvasCoords(); addText(p.x - 150, p.y - 20); return }
+      if (k === 'r') { const p = viewportCenterCanvasCoords(); addSection(p.x - 300, p.y - 200); return }
+      if (k === 'l') { e.preventDefault(); arrangeUnits(selIds()); return }
+      if (k === 'f') {
+        if (selection.sectionIds.size === 0) return
+        e.preventDefault()
+        for (const sid of selection.sectionIds) compactSection(sid)
+        return
+      }
+
+      if (e.key === 'Enter') {
+        const total = selection.cardIds.size + selection.labelIds.size + selection.sectionIds.size + selection.textIds.size
+        if (total === 1) {
+          const cid = [...selection.cardIds][0]
+          const tid = [...selection.textIds][0]
+          if (cid) setEditingCard(cid)
+          else if (tid) setEditingText(tid)
+        }
+        return
+      }
+
+      if ((e.key === 'Delete' || e.key === 'Backspace') && !selectionEmpty(selection)) {
+        e.preventDefault()
+        setConfirmDelete(selIds())
+        return
+      }
+
+      if (!selectionEmpty(selection) &&
+          (e.key === 'ArrowUp' || e.key === 'ArrowDown' || e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault()
+        const step = e.shiftKey ? 10 : 1
+        const dx = e.key === 'ArrowLeft' ? -step : e.key === 'ArrowRight' ? step : 0
+        const dy = e.key === 'ArrowUp' ? -step : e.key === 'ArrowDown' ? step : 0
+        nudgeUnits(selIds(), dx, dy)
+        return
       }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [connectingFrom, connections, deleteConnection, selection])
+  }, [connectingFrom, connections, deleteConnection, selection, confirmDelete, arrangeUnits, compactSection, addCard, addText, addSection, setEditingCard, setEditingText, nudgeUnits, zoomAroundCenter, resetZoomAroundCenter, viewportCenterCanvasCoords])
 
   useEffect(() => {
     if (!connectingFrom) {
@@ -652,6 +807,29 @@ export default function CanvasView() {
 
     if (connectingFrom) {
       setConnectingFrom(null)
+      return
+    }
+
+    const selCoords = toCanvasCoords(e.clientX, e.clientY)
+    if (arrangeableUnitCount(selection, sections) >= 2 &&
+        pointInSelection(selCoords, selection, cards, labels, sections, texts)) {
+      setCtxMenu({
+        x: e.clientX,
+        y: e.clientY,
+        items: [
+          {
+            label: '自动排布',
+            shortcut: scKey('arrange'),
+            icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /></svg>,
+            onClick: () => arrangeUnits({
+              cardIds: [...selection.cardIds],
+              labelIds: [...selection.labelIds],
+              sectionIds: [...selection.sectionIds],
+              textIds: [...selection.textIds],
+            }),
+          },
+        ],
+      })
       return
     }
 
@@ -715,11 +893,13 @@ export default function CanvasView() {
           },
           {
             label: '编辑',
+            shortcut: scKey('edit'),
             icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5L17 3z" /></svg>,
             onClick: () => setEditingCard(cardId),
           },
           {
             label: '删除',
+            shortcut: scKey('delete'),
             icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>,
             danger: true,
             onClick: () => deleteCard(cardId),
@@ -739,6 +919,7 @@ export default function CanvasView() {
           items: [
             {
               label: '分区最佳大小',
+              shortcut: scKey('compactSection'),
               icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>,
               onClick: () => compactSection(hitSection.id),
             },
@@ -751,6 +932,7 @@ export default function CanvasView() {
           items: [
             {
               label: '创建空白卡片',
+              shortcut: scKey('card'),
               icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="3" /><line x1="12" y1="8" x2="12" y2="16" /><line x1="8" y1="12" x2="16" y2="12" /></svg>,
               onClick: () => addCard(coords.x, coords.y),
             },
@@ -760,7 +942,14 @@ export default function CanvasView() {
               onClick: () => addLabel(coords.x, coords.y),
             },
             {
+              label: '创建文本',
+              shortcut: scKey('text'),
+              icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="4" y1="7" x2="20" y2="7" /><line x1="4" y1="12" x2="20" y2="12" /><line x1="4" y1="17" x2="14" y2="17" /></svg>,
+              onClick: () => addText(coords.x, coords.y),
+            },
+            {
               label: '创建分区',
+              shortcut: scKey('section'),
               icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2" strokeDasharray="4 2" /></svg>,
               onClick: () => addSection(coords.x, coords.y),
             },
@@ -768,7 +957,7 @@ export default function CanvasView() {
         })
       }
     }
-  }, [cards, sections, addCard, addLabel, addSection, deleteCard, setEditingCard, updateCard, toCanvasCoords, connectingFrom, compactSection])
+  }, [cards, sections, labels, texts, selection, addCard, addLabel, addText, addSection, deleteCard, setEditingCard, updateCard, toCanvasCoords, connectingFrom, compactSection, arrangeUnits])
 
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -946,11 +1135,15 @@ export default function CanvasView() {
           style={{ transform: 'translate3d(0,0,0) scale(1)', transformOrigin: '0 0' }}
         >
           {sections.map((sec) => (
-            <SectionBox key={sec.id} section={sec} scale={scaleVal.current} selected={selection.sectionIds.has(sec.id)} />
+            <SectionBox key={sec.id} section={sec} scale={scaleVal.current} selected={selection.sectionIds.has(sec.id)} onSelect={(id) => setSelection({ ...emptySelection(), sectionIds: new Set([id]) })} />
           ))}
 
           {labels.map((label) => (
             <CanvasLabelComponent key={label.id} label={label} scale={scaleVal.current} selected={selection.labelIds.has(label.id)} />
+          ))}
+
+          {texts.map((t) => (
+            <TextBoxComponent key={t.id} text={t} scale={scaleVal.current} selected={selection.textIds.has(t.id)} />
           ))}
 
           <svg className="connections-layer">
@@ -1073,6 +1266,20 @@ export default function CanvasView() {
         <MoveToModal
           cardId={moveModalCardId}
           onClose={() => setMoveModalCardId(null)}
+        />
+      )}
+
+      {confirmDelete && (
+        <ConfirmModal
+          message={`确定删除选中的 ${confirmDelete.cardIds.length + confirmDelete.labelIds.length + confirmDelete.sectionIds.length + confirmDelete.textIds.length} 个元素吗？删除后无法恢复。`}
+          confirmText="删除"
+          danger
+          onConfirm={() => {
+            deleteUnits(confirmDelete)
+            setSelection(emptySelection())
+            setConfirmDelete(null)
+          }}
+          onCancel={() => setConfirmDelete(null)}
         />
       )}
     </main>

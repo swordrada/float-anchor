@@ -71,6 +71,20 @@ function fileToBase64(file: File): Promise<string> {
   })
 }
 
+async function insertImageFile(editor: ReturnType<typeof useEditor>, file: File) {
+  if (!editor) return
+  try {
+    const buf = await file.arrayBuffer()
+    const res = await window.electronAPI.saveImage(buf, file.type)
+    if (res?.name) {
+      editor.chain().focus().setImage({ src: `fa-img://${res.name}` }).run()
+      return
+    }
+  } catch { /* 落到下面回退 */ }
+  const src = await fileToBase64(file) // 回退：保证粘贴永不失败
+  editor.chain().focus().setImage({ src }).run()
+}
+
 function mdToHtml(md: string): string {
   if (!md.trim()) return ''
   return marked.parse(md, { async: false }) as string
@@ -236,9 +250,7 @@ export default function RichEditor({ content, onChange }: Props) {
             event.preventDefault()
             const file = item.getAsFile()
             if (!file) return false
-            fileToBase64(file).then((src) => {
-              editor?.chain().focus().setImage({ src }).run()
-            })
+            void insertImageFile(editor, file)
             return true
           }
         }
@@ -250,9 +262,7 @@ export default function RichEditor({ content, onChange }: Props) {
         for (const file of files) {
           if (file.type.startsWith('image/')) {
             event.preventDefault()
-            fileToBase64(file).then((src) => {
-              editor?.chain().focus().setImage({ src }).run()
-            })
+            void insertImageFile(editor, file)
             return true
           }
         }
@@ -286,8 +296,7 @@ export default function RichEditor({ content, onChange }: Props) {
     input.onchange = async () => {
       const file = input.files?.[0]
       if (!file) return
-      const src = await fileToBase64(file)
-      editor.chain().focus().setImage({ src }).run()
+      await insertImageFile(editor, file)
     }
     input.click()
   }, [editor])

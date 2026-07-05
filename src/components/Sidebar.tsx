@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useStore } from '../store'
 import { shallow } from 'zustand/shallow'
+import SyncStatusIndicator from './SyncStatusIndicator'
 
 function UpdateBanner() {
   const [updateInfo, setUpdateInfo] = useState<{ version: string; downloadUrl: string; assetName: string } | null>(null)
@@ -287,6 +288,7 @@ export default function Sidebar({ width }: { width?: number }) {
             <span>新建画布</span>
           </button>
         )}
+        <SyncStatusIndicator />
       </div>
     </aside>
   )

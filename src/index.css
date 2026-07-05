@@ -1389,6 +1389,122 @@ input {
   background: rgba(229, 92, 92, 0.1);
 }
 
+/* ===== Canvas Text Box ===== */
+.canvas-text {
+  position: absolute;
+  cursor: grab;
+  user-select: none;
+  padding: 4px 6px;
+  z-index: 5;
+}
+
+.canvas-text.dragging {
+  opacity: 0.8;
+  cursor: grabbing;
+  z-index: 100;
+}
+
+.canvas-text:hover {
+  outline: 1px solid var(--border);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+.canvas-text.multi-selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.text-content {
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 1em;
+}
+
+.text-content.placeholder {
+  color: var(--text-muted);
+}
+
+.text-edit-input {
+  width: 100%;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.5;
+  font-family: inherit;
+  resize: none;
+  overflow: hidden;
+  padding: 0;
+  margin: 0;
+  display: block;
+}
+
+.text-resize-handle {
+  position: absolute;
+  top: 0;
+  right: -5px;
+  width: 10px;
+  height: 100%;
+  cursor: ew-resize;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.text-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 4px;
+  height: 24px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.canvas-text:hover .text-resize-handle,
+.canvas-text.multi-selected .text-resize-handle {
+  opacity: 1;
+}
+
+.text-actions {
+  position: absolute;
+  top: -4px;
+  right: -8px;
+  display: flex;
+  gap: 2px;
+}
+
+.text-action-btn {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.12s;
+}
+
+.text-action-btn:hover {
+  color: var(--accent);
+  background: var(--accent-light);
+}
+
+.text-action-btn.danger:hover {
+  color: var(--danger);
+  background: rgba(229, 92, 92, 0.1);
+}
+
 /* ===== Context Menu ===== */
 .context-menu {
   position: fixed;
@@ -1441,6 +1557,20 @@ input {
 
 .context-menu-item.danger .context-menu-icon {
   color: var(--danger);
+}
+
+.context-menu-shortcut {
+  margin-left: auto;
+  padding-left: 16px;
+  font-family: var(--font);
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  color: var(--text-muted);
+}
+
+.context-menu-item.danger .context-menu-shortcut {
+  color: var(--danger);
+  opacity: 0.75;
 }
 
 /* ===== Modal ===== */
@@ -1885,6 +2015,66 @@ input {
   50% { opacity: 0.4; }
 }
 
+.sync-dot.pending {
+  background: #f59e0b;
+  animation: breath-slow 2s ease-in-out infinite;
+}
+
+@keyframes breath-slow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.sync-indicator {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 5px 8px;
+  border: none;
+  border-radius: var(--radius-sm, 4px);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: default;
+  font-size: 11px;
+  line-height: 1.35;
+  text-align: left;
+}
+
+.sync-indicator .sync-dot {
+  flex: 0 0 auto;
+  margin-top: 3px;
+}
+
+.sync-indicator.clickable {
+  cursor: pointer;
+}
+
+.sync-indicator.clickable:hover {
+  background: var(--hover-bg, rgba(0, 0, 0, 0.06));
+  color: var(--text-primary);
+}
+
+.sync-indicator:disabled {
+  pointer-events: none;
+}
+
+.sync-indicator.error {
+  color: #ef4444;
+}
+
+.sync-indicator-label {
+  font-size: 11px;
+  color: inherit;
+  white-space: normal;
+  word-break: break-word;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
 .sync-decision-card {
   display: flex;
   flex-direction: column;
@@ -2325,3 +2515,135 @@ input {
   border-radius: 3px;
   padding: 1px 3px;
 }
+
+/* ===== Confirm Modal ===== */
+.confirm-message {
+  color: var(--text-primary);
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0 0 18px;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.confirm-btn {
+  padding: 6px 16px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 13px;
+  transition: all 0.12s;
+}
+
+.confirm-btn:hover {
+  background: var(--accent-light);
+}
+
+.confirm-btn.danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+}
+
+.confirm-btn.danger:hover {
+  opacity: 0.9;
+}
+
+.confirm-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.confirm-btn.danger:focus-visible {
+  outline-color: var(--danger);
+}
+
+/* ===== Settings: Keyboard Shortcuts ===== */
+.shortcut-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.shortcut-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.shortcut-row:last-child {
+  border-bottom: none;
+}
+
+.shortcut-label {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.shortcut-key {
+  font-family: var(--font);
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  padding: 2px 8px;
+  background: var(--sidebar-hover);
+  border-radius: var(--radius-sm);
+}
+
+/* Provider Switcher */
+.provider-switcher {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.provider-option {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 2px solid var(--border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: transparent;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.provider-option:hover {
+  background: var(--sidebar-hover);
+}
+
+.provider-option.active {
+  border-color: var(--accent);
+  background: var(--accent-light);
+}
+
+/* GitHub Panel */
+.github-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+.onedrive-account {
+  font-size: 13px;
+  color: var(--text-secondary);
+  padding: 8px 12px;
+  background: var(--sidebar-hover);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+

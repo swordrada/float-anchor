@@ -31,6 +31,16 @@ export interface Section {
   sourceId?: string
 }
 
+export interface TextBox {
+  id: string
+  text: string
+  x: number
+  y: number
+  width: number
+  height?: number
+  sourceId?: string
+}
+
 export interface Connection {
   id: string
   fromCardId: string
@@ -50,6 +60,7 @@ export interface Canvas {
   labels?: CanvasLabel[]
   sections?: Section[]
   connections?: Connection[]
+  texts?: TextBox[]
   viewport?: CanvasViewport
 }
 
@@ -65,9 +76,13 @@ export interface WebDAVConfig {
   password: string
 }
 
+export type SyncProvider = 'webdav' | 'github' | 'none'
+
 export interface AppSettings {
   theme: 'light' | 'dark'
   webdav?: WebDAVConfig
+  syncProvider?: SyncProvider
+  github?: { repo: string; branch?: string }
 }
 
 export interface WebDAVSyncSummary {
@@ -77,6 +92,7 @@ export interface WebDAVSyncSummary {
   sectionCount: number
   connectionCount: number
   totalEntityCount: number
+  textCount: number
 }
 
 export interface WebDAVSyncDecision {
@@ -116,7 +132,7 @@ interface UpdateProgress {
 }
 
 interface SyncStatus {
-  status: 'syncing' | 'success' | 'error' | 'warning'
+  status: 'pending' | 'syncing' | 'success' | 'error' | 'warning'
   error?: string
 }
 
@@ -152,13 +168,11 @@ declare global {
       cancelUpdate: () => Promise<{ success: boolean; error?: string }>
       getResumeProgress: (assetName: string) => Promise<number>
       checkUpdate: () => Promise<{ hasUpdate: boolean; version?: string; currentVersion: string }>
-      webdavTest: (config: WebDAVConfig) => Promise<{ success: boolean; error?: string }>
-      webdavUpload: (config: WebDAVConfig) => Promise<{ success: boolean; error?: string }>
-      webdavDownload: (config: WebDAVConfig) => Promise<{ success: boolean; data?: AppData; error?: string }>
-      webdavAutoSync: (config: WebDAVConfig) => Promise<WebDAVSyncResult>
-      webdavStartupSync: (config: WebDAVConfig) => Promise<WebDAVSyncResult>
-      webdavPeriodicSync: (config: WebDAVConfig) => Promise<WebDAVSyncResult>
-      webdavResolveConflict: (config: WebDAVConfig, resolution: WebDAVSyncResolution) => Promise<WebDAVSyncResult>
+      syncTest: (config: WebDAVConfig) => Promise<{ success: boolean; error?: string }>
+      syncAuto: () => Promise<WebDAVSyncResult>
+      syncStartup: () => Promise<WebDAVSyncResult>
+      syncPeriodic: () => Promise<WebDAVSyncResult>
+      syncResolveConflict: (resolution: WebDAVSyncResolution) => Promise<WebDAVSyncResult>
       onSyncStatus: (cb: (status: SyncStatus) => void) => void
       exportBackup: () => Promise<{ success: boolean; path?: string; fileName?: string; error?: string }>
       importBackup: () => Promise<{ success: boolean; data?: AppData; error?: string }>
@@ -166,6 +180,13 @@ declare global {
       prepareClearAllData: () => Promise<PrepareClearResult>
       clearAllData: () => Promise<{ success: boolean; data?: AppData; error?: string }>
       getBackupDir: () => Promise<string>
+      githubTest: (c: { repo: string; token: string; branch?: string }) => Promise<{ success: boolean; error?: string }>
+      githubSaveToken: (token: string) => Promise<{ success: boolean }>
+      githubClearToken: () => Promise<{ success: boolean }>
+      githubHasToken: () => Promise<{ has: boolean }>
+      githubAccount: () => Promise<{ login: string | null }>
+      saveImage: (bytes: ArrayBuffer, mime?: string) => Promise<{ name?: string; error?: string }>
+      migrateEmbeddedImages: () => Promise<{ success: boolean; count?: number; beforeBytes?: number; afterBytes?: number; error?: string }>
     }
   }
 }
