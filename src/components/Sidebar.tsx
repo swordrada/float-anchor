@@ -123,6 +123,8 @@ export default function Sidebar({ width }: { width?: number }) {
     s.canvases.map((c) => ({ id: c.id, name: c.name, cardCount: c.cards.length })),
     shallow,
   )
+  const openBoardOverview = useStore((s) => s.openBoardOverview)
+  const openDailyJournal = useStore((s) => s.openDailyJournal)
 
   const [isAdding, setIsAdding] = useState(false)
   const [newName, setNewName] = useState('')
@@ -193,6 +195,19 @@ export default function Sidebar({ width }: { width?: number }) {
       </div>
 
       <nav className="canvas-list">
+        <button className="canvas-overview-button" onClick={openDailyJournal}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="3" y="4" width="18" height="17" rx="2" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
+          </svg>
+          每日记
+        </button>
+        <button className="canvas-overview-button" onClick={openBoardOverview}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" />
+            <rect x="3" y="14" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" />
+          </svg>
+          白板总览
+        </button>
         {canvases.map((c) => (
           <div
             key={c.id}

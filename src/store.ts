@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { shallow } from 'zustand/shallow'
 import { v4 as uuid } from 'uuid'
-import type { Canvas, Card, CanvasLabel, Section, Connection, CanvasViewport, AppSettings, WebDAVConfig, WebDAVSyncDecision, TextBox, SyncProvider } from './types'
+import type { Canvas, Card, CanvasLabel, Section, Connection, CanvasViewport, AppSettings, WebDAVConfig, WebDAVSyncDecision, TextBox, SyncProvider, JournalData } from './types'
+import { getTodayDateKey } from './lib/dateUtils'
 
 export function getEffectiveProvider(settings: AppSettings): SyncProvider {
   return settings.syncProvider ?? (settings.webdav?.server ? 'webdav' : 'none')
@@ -33,6 +34,11 @@ export function isCardSnappedAdjacent(cd: SnapRect, member: SnapRect, gap: numbe
 interface AppState {
   canvases: Canvas[]
   activeCanvasId: string | null
+  boardViewMode: 'overview' | 'canvas'
+  activeView: 'boards' | 'journal'
+  journal: JournalData
+  journalViewMode: 'detail' | 'table'
+  journalSelectedDate: string
   editingCardId: string | null
   editingTextId: string | null
   highlightCardId: string | null
@@ -58,6 +64,11 @@ interface AppState {
   flushPendingSave: () => Promise<void>
 
   addCanvas: (name: string) => void
+  openBoardOverview: () => void
+  openDailyJournal: () => void
+  setJournalViewMode: (mode: 'detail' | 'table') => void
+  setJournalSelectedDate: (date: string) => void
+  upsertJournalEntry: (date: string, patch: { customTitle?: string; content?: string }) => void
   deleteCanvas: (id: string) => void
   renameCanvas: (id: string, name: string) => void
   setActiveCanvas: (id: string) => void
@@ -106,9 +117,33 @@ const SECTION_COLORS = ['#9ca3af', '#60a5fa', '#34d399', '#fb923c', '#f472b6']
 const LOCAL_WEBDAV_SYNC_DELAY_MS = 2000
 const MIN_REMOTE_UPLOAD_INTERVAL_MS = 30000
 
+function normalizeJournal(raw: unknown): JournalData {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { entriesByDate: {} }
+  const entries = (raw as { entriesByDate?: unknown }).entriesByDate
+  if (!entries || typeof entries !== 'object' || Array.isArray(entries)) return { entriesByDate: {} }
+  const entriesByDate: JournalData['entriesByDate'] = {}
+  for (const [date, value] of Object.entries(entries)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !value || typeof value !== 'object') continue
+    const item = value as Record<string, unknown>
+    entriesByDate[date] = {
+      date,
+      customTitle: typeof item.customTitle === 'string' ? item.customTitle : undefined,
+      content: typeof item.content === 'string' ? item.content : '',
+      createdAt: typeof item.createdAt === 'number' ? item.createdAt : Date.now(),
+      updatedAt: typeof item.updatedAt === 'number' ? item.updatedAt : Date.now(),
+    }
+  }
+  return { entriesByDate }
+}
+
 export const useStore = create<AppState>((set, get) => ({
   canvases: [],
   activeCanvasId: null,
+  boardViewMode: 'canvas',
+  activeView: 'boards',
+  journal: { entriesByDate: {} },
+  journalViewMode: 'detail',
+  journalSelectedDate: getTodayDateKey(),
   editingCardId: null,
   editingTextId: null,
   highlightCardId: null,
@@ -143,6 +178,11 @@ export const useStore = create<AppState>((set, get) => ({
         set({
           canvases: cleaned,
           activeCanvasId: data.activeCanvasId ?? cleaned[0].id,
+          boardViewMode: data.boardViewMode === 'overview' ? 'overview' : 'canvas',
+          activeView: data.activeView === 'journal' ? 'journal' : 'boards',
+          journal: normalizeJournal(data.journal),
+          journalViewMode: data.journalViewMode === 'table' ? 'table' : 'detail',
+          journalSelectedDate: /^\d{4}-\d{2}-\d{2}$/.test(data.journalSelectedDate ?? '') ? data.journalSelectedDate! : getTodayDateKey(),
           loaded: true,
         })
         if (needsPersist) get().persist()
@@ -151,15 +191,15 @@ export const useStore = create<AppState>((set, get) => ({
     } catch { /* ignore */ }
 
     const first: Canvas = { id: uuid(), name: '默认画布', cards: [] }
-    set({ canvases: [first], activeCanvasId: first.id, loaded: true })
+    set({ canvases: [first], activeCanvasId: first.id, boardViewMode: 'canvas', activeView: 'boards', journal: { entriesByDate: {} }, journalViewMode: 'detail', journalSelectedDate: getTodayDateKey(), loaded: true })
     get().persist()
   },
 
   persist: () => {
     clearTimeout(saveTimer)
     saveTimer = setTimeout(() => {
-      const { canvases, activeCanvasId, settings, syncDecision } = get()
-      void window.electronAPI.writeData({ canvases, activeCanvasId }).then((saved) => {
+      const { canvases, activeCanvasId, boardViewMode, activeView, journal, journalViewMode, journalSelectedDate, settings, syncDecision } = get()
+      void window.electronAPI.writeData({ canvases, activeCanvasId, boardViewMode, activeView, journal, journalViewMode, journalSelectedDate }).then((saved) => {
         if (!saved) return
         if (getEffectiveProvider(settings) !== 'none' && !syncDecision) {
           set({ syncStatus: 'pending', syncError: null })
@@ -248,8 +288,8 @@ export const useStore = create<AppState>((set, get) => ({
 
   flushPendingSave: async () => {
     clearTimeout(saveTimer)
-    const { canvases, activeCanvasId } = get()
-    await window.electronAPI.writeData({ canvases, activeCanvasId })
+    const { canvases, activeCanvasId, boardViewMode, activeView, journal, journalViewMode, journalSelectedDate } = get()
+    await window.electronAPI.writeData({ canvases, activeCanvasId, boardViewMode, activeView, journal, journalViewMode, journalSelectedDate })
   },
 
   addCanvas: (name) => {
@@ -257,7 +297,52 @@ export const useStore = create<AppState>((set, get) => ({
     set((s) => ({
       canvases: [...s.canvases, canvas],
       activeCanvasId: canvas.id,
+      boardViewMode: 'canvas',
+      activeView: 'boards',
     }))
+    get().persist()
+  },
+
+  openBoardOverview: () => {
+    set({ activeView: 'boards', boardViewMode: 'overview', editingCardId: null, editingTextId: null })
+    get().persist()
+  },
+
+  openDailyJournal: () => {
+    set({ activeView: 'journal', editingCardId: null, editingTextId: null })
+    get().persist()
+  },
+
+  setJournalViewMode: (journalViewMode) => {
+    set({ activeView: 'journal', journalViewMode })
+    get().persist()
+  },
+
+  setJournalSelectedDate: (journalSelectedDate) => {
+    set({ activeView: 'journal', journalSelectedDate })
+    get().persist()
+  },
+
+  upsertJournalEntry: (date, patch) => {
+    set((s) => {
+      const previous = s.journal.entriesByDate[date]
+      const now = Date.now()
+      return {
+        activeView: 'journal' as const,
+        journal: {
+          entriesByDate: {
+            ...s.journal.entriesByDate,
+            [date]: {
+              date,
+              customTitle: patch.customTitle ?? previous?.customTitle,
+              content: patch.content ?? previous?.content ?? '',
+              createdAt: previous?.createdAt ?? now,
+              updatedAt: now,
+            },
+          },
+        },
+      }
+    })
     get().persist()
   },
 
@@ -289,7 +374,7 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   setActiveCanvas: (id) => {
-    set({ activeCanvasId: id, editingCardId: null })
+    set({ activeCanvasId: id, activeView: 'boards', boardViewMode: 'canvas', editingCardId: null })
     get().persist()
   },
 
