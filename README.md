@@ -60,9 +60,9 @@
 
 | 文件 | 平台 | 适用设备 |
 |------|------|----------|
-| `FloatAnchor-1.0.12-mac-arm64.dmg` | macOS | Apple Silicon (M1/M2/M3/M4) |
-| `FloatAnchor-1.0.12-mac-x64.dmg` | macOS | Intel Mac |
-| `FloatAnchor-1.0.12-win-setup.exe` | Windows | 64 位 Windows |
+| `FloatAnchor-1.0.13-mac-arm64.dmg` | macOS | Apple Silicon (M1/M2/M3/M4) |
+| `FloatAnchor-1.0.13-mac-x64.dmg` | macOS | Intel Mac |
+| `FloatAnchor-1.0.13-win-setup.exe` | Windows | 64 位 Windows |
 
 ### macOS 安装
 
