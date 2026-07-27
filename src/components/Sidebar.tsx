@@ -130,6 +130,7 @@ export default function Sidebar({ width }: { width?: number }) {
   const [newName, setNewName] = useState('')
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameText, setRenameText] = useState('')
+  const [openingInstantMode, setOpeningInstantMode] = useState(false)
   const addInputRef = useRef<HTMLInputElement>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
 
@@ -170,16 +171,29 @@ export default function Sidebar({ width }: { width?: number }) {
     setRenameText(name)
   }
 
+  const handleOpenInstantMode = async () => {
+    if (openingInstantMode) return
+    setOpeningInstantMode(true)
+    try {
+      await useStore.getState().flushPendingSave()
+      await window.electronAPI.openInstantMode()
+    } finally {
+      setOpeningInstantMode(false)
+    }
+  }
+
   return (
     <aside className="sidebar" style={width ? { width } : undefined}>
       <div className="sidebar-header">
         <div className="sidebar-logo">
-          <svg width="22" height="22" viewBox="0 0 100 100" className="logo-icon">
-            <rect x="5" y="5" width="90" height="90" rx="20" fill="var(--card-bg)" stroke="var(--border)" strokeWidth="3" />
-            <text x="50" y="62" textAnchor="middle" fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" fontSize="46" fontWeight="700" fill="var(--text-primary)">FA</text>
-            <polyline points="35,78 50,88 65,78" fill="none" stroke="#4a90d9" strokeWidth="4" strokeLinecap="round" strokeLinejoin="round" />
-            <circle cx="50" cy="90" r="3" fill="#4a90d9" />
-          </svg>
+          <img
+            className="logo-icon"
+            src="./float-anchor-logo.svg"
+            width="24"
+            height="24"
+            alt=""
+            aria-hidden="true"
+          />
           <span>FloatAnchor</span>
         </div>
         <button
@@ -193,6 +207,25 @@ export default function Sidebar({ width }: { width?: number }) {
           </svg>
         </button>
       </div>
+
+      <button
+        className="instant-mode-switch"
+        onClick={() => void handleOpenInstantMode()}
+        disabled={openingInstantMode}
+      >
+        <span className="instant-mode-switch-icon">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M13 2L5 13h6l-1 9 8-12h-6l1-8z" />
+          </svg>
+        </span>
+        <span>
+          <strong>{openingInstantMode ? '正在切换…' : '切换即刻模式'}</strong>
+          <small>将闪念快速锚定</small>
+        </span>
+        <svg className="instant-mode-switch-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M9 5l7 7-7 7" />
+        </svg>
+      </button>
 
       <nav className="canvas-list">
         <button className="canvas-overview-button" onClick={openDailyJournal}>

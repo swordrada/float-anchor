@@ -179,6 +179,12 @@ declare global {
       winMinimize: () => void
       winMaximize: () => void
       winClose: () => void
+      openInstantMode: () => Promise<boolean>
+      hideInstantMode: () => void
+      closeInstantMode: () => void
+      setInstantAlwaysOnTop: (value: boolean) => Promise<boolean>
+      instantDataChanged: () => void
+      onInstantDataChanged: (cb: () => void) => () => void
       onUpdateAvailable: (cb: (info: UpdateInfo) => void) => () => void
       onUpdateProgress: (cb: (progress: UpdateProgress) => void) => () => void
       triggerUpdate: (downloadUrl: string, assetName: string) => Promise<{ success: boolean; error?: string }>

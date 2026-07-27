@@ -171,6 +171,99 @@ describe('每日记与白板视图', () => {
   })
 })
 
+describe('即刻模式写入', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    ;(globalThis as unknown as { window: unknown }).window = {
+      electronAPI: { writeData: () => Promise.resolve(true) },
+    }
+    useStore.setState({
+      activeCanvasId: 'cv',
+      activeView: 'boards',
+      boardViewMode: 'canvas',
+      canvases: [{
+        id: 'cv',
+        name: '灵感白板',
+        cards: [],
+        sections: [{
+          id: 's1',
+          name: '待整理',
+          x: 100,
+          y: 80,
+          width: 430,
+          height: 150,
+          color: '#60a5fa',
+          cardIds: [],
+        }],
+      }],
+      settings: { theme: 'light' } as AppSettings,
+      syncDecision: null,
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    delete (globalThis as unknown as { window?: unknown }).window
+  })
+
+  it('新建白板后自动选中该白板', () => {
+    const canvasId = useStore.getState().createInstantCanvas('闪念收集')
+    const state = useStore.getState()
+
+    expect(state.activeCanvasId).toBe(canvasId)
+    expect(state.canvases.find((canvas) => canvas.id === canvasId)).toMatchObject({
+      name: '闪念收集',
+      cards: [],
+    })
+  })
+
+  it('新建分区后自动选择目标白板并使用轮换色', () => {
+    const sectionId = useStore.getState().createInstantSection('cv', '马上行动')
+    const state = useStore.getState()
+    const section = state.canvases[0].sections?.find((item) => item.id === sectionId)
+
+    expect(state.activeCanvasId).toBe('cv')
+    expect(section).toMatchObject({
+      name: '马上行动',
+      color: '#60a5fa',
+      cardIds: [],
+    })
+  })
+
+  it('Markdown 卡片写入所选分区并自动扩展分区边界', () => {
+    const cardId = useStore.getState().createInstantCard(
+      'cv',
+      's1',
+      '今日想法',
+      '## 今日想法\n\n- [ ] 验证即刻模式',
+    )
+    const canvas = useStore.getState().canvases[0]
+    const card = canvas.cards.find((item) => item.id === cardId)
+    const section = canvas.sections?.[0]
+
+    expect(card).toMatchObject({
+      title: '今日想法',
+      content: '## 今日想法\n\n- [ ] 验证即刻模式',
+      x: 124,
+      y: 140,
+      width: 373,
+    })
+    expect(section?.cardIds).toContain(cardId)
+    expect(section?.height).toBeGreaterThanOrEqual(284)
+    expect(useStore.getState().highlightCardId).toBe(cardId)
+  })
+
+  it('只有标题时也可以快速创建卡片', () => {
+    const cardId = useStore.getState().createInstantCard('cv', null, '稍后继续展开', '')
+    const card = useStore.getState().canvases[0].cards.find((item) => item.id === cardId)
+
+    expect(card).toMatchObject({
+      title: '稍后继续展开',
+      content: '',
+    })
+  })
+})
+
 describe('删除卡片清理悬空引用（#3）', () => {
   const mkCard = (id: string): Card => ({ id, title: '', content: '', x: 0, y: 0, width: 200, height: 150 })
 

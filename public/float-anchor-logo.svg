@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="float-anchor-green" x1="176" y1="126" x2="844" y2="914" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#55aa8d"/>
+      <stop offset="0.52" stop-color="#3f9079"/>
+      <stop offset="1" stop-color="#286c5d"/>
+    </linearGradient>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="238" fill="url(#float-anchor-green)"/>
+  <ellipse
+    cx="512"
+    cy="512"
+    rx="374"
+    ry="176"
+    fill="none"
+    stroke="#ffffff"
+    stroke-opacity="0.34"
+    stroke-width="22"
+    transform="rotate(-26 512 512)"
+  />
+  <path fill="#ffffff" d="M245 350H500V430H350V492H480V570H350V695H245Z"/>
+  <path
+    fill="#ffffff"
+    fill-rule="evenodd"
+    d="M440 695L570 350H680L810 695H708L687 624H563L542 695H440ZM625 454L590 550H660L625 454Z"
+  />
+  <circle cx="804" cy="318" r="53" fill="#f5b874" stroke="#ffffff" stroke-width="24"/>
+</svg>

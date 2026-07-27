@@ -64,6 +64,9 @@ interface AppState {
   flushPendingSave: () => Promise<void>
 
   addCanvas: (name: string) => void
+  createInstantCanvas: (name: string) => string
+  createInstantSection: (canvasId: string, name: string) => string
+  createInstantCard: (canvasId: string, sectionId: string | null, title: string, content: string) => string | null
   openBoardOverview: () => void
   openDailyJournal: () => void
   setJournalViewMode: (mode: 'detail' | 'table') => void
@@ -301,6 +304,124 @@ export const useStore = create<AppState>((set, get) => ({
       activeView: 'boards',
     }))
     get().persist()
+  },
+
+  createInstantCanvas: (name) => {
+    const canvas: Canvas = { id: uuid(), name, cards: [] }
+    set((s) => ({
+      canvases: [...s.canvases, canvas],
+      activeCanvasId: canvas.id,
+      boardViewMode: 'canvas',
+      activeView: 'boards',
+      editingCardId: null,
+      editingTextId: null,
+    }))
+    get().persist()
+    return canvas.id
+  },
+
+  createInstantSection: (canvasId, name) => {
+    const canvas = get().canvases.find((item) => item.id === canvasId)
+    const sectionId = uuid()
+    if (!canvas) return sectionId
+
+    const existingSections = canvas.sections ?? []
+    const color = SECTION_COLORS[existingSections.length % SECTION_COLORS.length]
+    const contentBottom = Math.max(
+      0,
+      ...existingSections.map((section) => section.y + section.height),
+      ...canvas.cards.map((card) => card.y + (card.height ?? 200)),
+    )
+    const section: Section = {
+      id: sectionId,
+      name,
+      x: 0,
+      y: existingSections.length || canvas.cards.length ? contentBottom + 80 : 0,
+      width: 600,
+      height: 400,
+      color,
+      cardIds: [],
+    }
+
+    set((s) => ({
+      canvases: s.canvases.map((item) =>
+        item.id === canvasId
+          ? { ...item, sections: [...(item.sections ?? []), section] }
+          : item,
+      ),
+      activeCanvasId: canvasId,
+      boardViewMode: 'canvas',
+      activeView: 'boards',
+      editingCardId: null,
+      editingTextId: null,
+    }))
+    get().persist()
+    return sectionId
+  },
+
+  createInstantCard: (canvasId, sectionId, title, content) => {
+    const canvas = get().canvases.find((item) => item.id === canvasId)
+    if (!canvas || (!title.trim() && !content.trim())) return null
+
+    const selectedSection = sectionId
+      ? (canvas.sections ?? []).find((section) => section.id === sectionId)
+      : undefined
+    const cardId = uuid()
+    const cardWidth = 373
+    const estimatedHeight = 200
+    let x = 0
+    let y = 0
+
+    if (selectedSection) {
+      const memberIds = new Set(selectedSection.cardIds ?? [])
+      const members = canvas.cards.filter((card) => memberIds.has(card.id))
+      x = selectedSection.x + 24
+      y = members.length
+        ? Math.max(...members.map((card) => card.y + (card.height ?? estimatedHeight))) + 12
+        : selectedSection.y + 60
+    } else if (canvas.cards.length) {
+      const rightMost = canvas.cards.reduce((best, card) =>
+        card.x + card.width > best.x + best.width ? card : best,
+      )
+      x = rightMost.x + rightMost.width + 24
+      y = rightMost.y
+    }
+
+    const card: Card = {
+      id: cardId,
+      title: title.trim(),
+      content,
+      x,
+      y,
+      width: cardWidth,
+    }
+
+    set((s) => ({
+      canvases: s.canvases.map((item) => {
+        if (item.id !== canvasId) return item
+        return {
+          ...item,
+          cards: [...item.cards, card],
+          sections: (item.sections ?? []).map((section) => {
+            if (section.id !== selectedSection?.id) return section
+            return {
+              ...section,
+              width: Math.max(section.width, x + cardWidth + 24 - section.x),
+              height: Math.max(section.height, y + estimatedHeight + 24 - section.y),
+              cardIds: [...(section.cardIds ?? []), cardId],
+            }
+          }),
+        }
+      }),
+      activeCanvasId: canvasId,
+      boardViewMode: 'canvas',
+      activeView: 'boards',
+      editingCardId: null,
+      editingTextId: null,
+      highlightCardId: cardId,
+    }))
+    get().persist()
+    return cardId
   },
 
   openBoardOverview: () => {

@@ -28,6 +28,8 @@ function getDataPaths() {
 }
 
 let mainWindow: BrowserWindow | null = null
+let instantWindow: BrowserWindow | null = null
+let isQuitting = false
 
 const GITHUB_OWNER = 'swordrada'
 const GITHUB_REPO = 'float-anchor'
@@ -318,9 +320,7 @@ function createWindow() {
   const theme = getThemeFromSettings()
   const isDark = theme === 'dark'
   const bgColor = isDark ? '#1a1a1e' : '#f0f0f0'
-  const windowIcon = process.platform === 'win32'
-    ? path.join(__dirname, '../build/icon.png')
-    : undefined
+  const windowIcon = path.join(__dirname, '../build/icon.png')
 
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -367,6 +367,87 @@ function createWindow() {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
+  }
+}
+
+function restoreMainWindow() {
+  if (isQuitting || !mainWindow || mainWindow.isDestroyed()) return
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+function createInstantWindow() {
+  if (instantWindow && !instantWindow.isDestroyed()) {
+    if (instantWindow.isMinimized()) instantWindow.restore()
+    instantWindow.show()
+    instantWindow.focus()
+    return
+  }
+
+  const theme = getThemeFromSettings()
+  const isDark = theme === 'dark'
+  mainWindow?.minimize()
+
+  instantWindow = new BrowserWindow({
+    width: 520,
+    height: 660,
+    minWidth: 430,
+    minHeight: 560,
+    maxWidth: 720,
+    maxHeight: 900,
+    frame: false,
+    title: 'FloatAnchor 即刻模式',
+    backgroundColor: isDark ? '#1b1c20' : '#f7f7f4',
+    icon: path.join(__dirname, '../build/icon.png'),
+    alwaysOnTop: true,
+    resizable: true,
+    movable: true,
+    minimizable: true,
+    maximizable: false,
+    fullscreenable: false,
+    hasShadow: true,
+    show: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  })
+
+  instantWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+  instantWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('mailto:')) {
+      shell.openExternal(url)
+    }
+    return { action: 'deny' }
+  })
+  instantWindow.webContents.on('will-navigate', (event, url) => {
+    if (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('mailto:')) {
+      event.preventDefault()
+      shell.openExternal(url)
+    }
+  })
+  instantWindow.webContents.once('did-fail-load', () => {
+    instantWindow?.close()
+  })
+  instantWindow.once('ready-to-show', () => {
+    instantWindow?.show()
+    instantWindow?.focus()
+  })
+  instantWindow.on('closed', () => {
+    instantWindow = null
+    restoreMainWindow()
+  })
+
+  if (process.env.VITE_DEV_SERVER_URL) {
+    const url = new URL(process.env.VITE_DEV_SERVER_URL)
+    url.searchParams.set('mode', 'instant')
+    instantWindow.loadURL(url.toString())
+  } else {
+    instantWindow.loadFile(path.join(__dirname, '../dist/index.html'), {
+      query: { mode: 'instant' },
+    })
   }
 }
 
@@ -615,14 +696,20 @@ ipcMain.handle('sync-startup', async () => enqueueSync(async () => {
   try { return await runSync() } catch (err) { return { success: false, error: describeSyncError(err) } }
 }))
 
-ipcMain.handle('sync-periodic', async () => enqueueSync(async () => {
-  // 与 sync-auto 共用 runSync：远端未变(ETag)时跳过整份下载，仅一个 PROPFIND。
-  try {
-    return await runSync()
-  } catch (err) {
-    return { success: false, error: describeSyncError(err) }
+ipcMain.handle('sync-periodic', async () => {
+  // 即刻窗口持有一份独立的渲染态；暂停周期拉取，避免远端下载与正在记录的草稿互相覆盖。
+  if (instantWindow && !instantWindow.isDestroyed()) {
+    return { success: true, action: 'up-to-date' as const }
   }
-}))
+  // 与 sync-auto 共用 runSync：远端未变(ETag)时跳过整份下载，仅一个 PROPFIND。
+  return enqueueSync(async () => {
+    try {
+      return await runSync()
+    } catch (err) {
+      return { success: false, error: describeSyncError(err) }
+    }
+  })
+})
 
 ipcMain.handle('sync-resolve-conflict', async (_e, resolution: 'keep-local' | 'use-remote') => enqueueSync(async () => {
   try {
@@ -905,12 +992,44 @@ ipcMain.on('win-close', (e) => {
   BrowserWindow.fromWebContents(e.sender)?.close()
 })
 
+ipcMain.handle('instant-mode-open', () => {
+  createInstantWindow()
+  return true
+})
+
+ipcMain.on('instant-mode-close', () => {
+  instantWindow?.close()
+})
+
+ipcMain.on('instant-mode-hide', (event) => {
+  const senderWindow = BrowserWindow.fromWebContents(event.sender)
+  if (senderWindow && senderWindow === instantWindow) {
+    senderWindow.minimize()
+  }
+})
+
+ipcMain.handle('instant-mode-always-on-top', (_event, value: boolean) => {
+  if (!instantWindow || instantWindow.isDestroyed()) return false
+  instantWindow.setAlwaysOnTop(value)
+  return instantWindow.isAlwaysOnTop()
+})
+
+ipcMain.on('instant-mode-data-changed', () => {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('instant-mode-data-changed')
+  }
+})
+
 protocol.registerSchemesAsPrivileged([
   { scheme: 'fa-image', privileges: { standard: true, secure: true, bypassCSP: true, supportFetchAPI: true, stream: true } },
   { scheme: 'fa-img', privileges: { standard: true, secure: true, bypassCSP: true, supportFetchAPI: true, stream: true } },
 ])
 
 app.whenReady().then(() => {
+  if (process.platform === 'darwin') {
+    app.dock.setIcon(path.join(__dirname, '../build/icon.png'))
+  }
+
   protocol.handle('fa-image', (request) => {
     try {
       const url = new URL(request.url)
@@ -955,9 +1074,19 @@ app.on('window-all-closed', () => {
 })
 
 app.on('activate', () => {
+  if (instantWindow && !instantWindow.isDestroyed()) {
+    if (instantWindow.isMinimized()) instantWindow.restore()
+    instantWindow.show()
+    instantWindow.focus()
+    return
+  }
   if (BrowserWindow.getAllWindows().length === 0) {
     createWindow()
   }
+})
+
+app.on('before-quit', () => {
+  isQuitting = true
 })
 
 /* ===== GitHub IPC ===== */

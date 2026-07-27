@@ -9,6 +9,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   winMinimize: () => ipcRenderer.send('win-minimize'),
   winMaximize: () => ipcRenderer.send('win-maximize'),
   winClose: () => ipcRenderer.send('win-close'),
+  openInstantMode: () => ipcRenderer.invoke('instant-mode-open'),
+  hideInstantMode: () => ipcRenderer.send('instant-mode-hide'),
+  closeInstantMode: () => ipcRenderer.send('instant-mode-close'),
+  setInstantAlwaysOnTop: (value: boolean) =>
+    ipcRenderer.invoke('instant-mode-always-on-top', value),
+  instantDataChanged: () => ipcRenderer.send('instant-mode-data-changed'),
+  onInstantDataChanged: (cb: () => void) => {
+    const handler = () => cb()
+    ipcRenderer.on('instant-mode-data-changed', handler)
+    return () => { ipcRenderer.removeListener('instant-mode-data-changed', handler) }
+  },
   onUpdateAvailable: (cb: (info: any) => void) => {
     const handler = (_e: any, info: any) => cb(info)
     ipcRenderer.on('update-available', handler)

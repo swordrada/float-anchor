@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="build/icon.png" width="120" alt="FloatAnchor Logo">
+  <img src="public/float-anchor-logo.svg" width="120" alt="FloatAnchor Logo">
 </p>
 
 <h1 align="center">FloatAnchor</h1>
@@ -39,6 +39,10 @@
 
 每日记为当天留出一块安静的写作空间：月历会用短标记显示已经记录的日子，点击任意日期即可补写或回顾。你可以快速切换前后日期，为记录添加标题和正文，并在回顾视图中按时间浏览过往内容的标题与摘要。
 
+### 即刻模式
+
+需要先把想法记下来时，可从侧栏切换到独立的「即刻模式」窗口。它会置顶显示一个专注的记录空间，支持 Markdown，按 `⌘ + Enter` / `Ctrl + Enter` 即可投入每日记；关闭窗口后会自动回到主界面。
+
 ### 富文本写作与素材
 
 卡片和每日记共用所见即所得编辑器，支持一级至四级标题、加粗、斜体、删除线、列表、引用、行内代码、链接、文字颜色和高亮等常用格式。图片可直接粘贴或拖入，应用会保存为本地文件并以引用插入，避免把大型 base64 数据塞进笔记，同时让同步更轻量。
@@ -53,13 +57,13 @@
 
 ## 下载安装
 
-当前稳定版为 [`v1.0.14`](https://github.com/swordrada/float-anchor/releases/tag/v1.0.14)，可在 [Releases](https://github.com/swordrada/float-anchor/releases) 页面下载：
+当前稳定版为 [`v1.0.15`](https://github.com/swordrada/float-anchor/releases/tag/v1.0.15)，可在 [Releases](https://github.com/swordrada/float-anchor/releases) 页面下载：
 
 | 文件 | 平台 | 适用设备 |
 |------|------|----------|
-| `FloatAnchor-1.0.14-mac-arm64.dmg` | macOS | Apple Silicon (M1/M2/M3/M4) |
-| `FloatAnchor-1.0.14-mac-x64.dmg` | macOS | Intel Mac |
-| `FloatAnchor-1.0.14-win-setup.exe` | Windows | 64 位 Windows |
+| `FloatAnchor-1.0.15-mac-arm64.dmg` | macOS | Apple Silicon (M1/M2/M3/M4) |
+| `FloatAnchor-1.0.15-mac-x64.dmg` | macOS | Intel Mac |
+| `FloatAnchor-1.0.15-win-setup.exe` | Windows | 64 位 Windows |
 
 ### macOS 安装
 
@@ -89,6 +93,12 @@
 - **查看记录状态** — 月历中带有短标记的日期表示已有记录；点击任意日期即可开始补写或回顾
 - **切换日期** — 用编辑页右上角的前一天 / 后一天切换日期
 - **回顾记录** — 点击 **历史** 查看已写过的日期、标题与正文预览
+
+### 即刻模式
+
+- **打开** — 点击侧栏的 **切换即刻模式**；主窗口会最小化，独立窗口始终置顶
+- **快速记录** — 输入想法后按 `⌘ + Enter` / `Ctrl + Enter`，内容会追加到当天的每日记
+- **返回主界面** — 关闭即刻模式窗口，主窗口会自动恢复
 
 ### 卡片操作
 

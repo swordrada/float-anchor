@@ -152,6 +152,12 @@ export default function App() {
     }
   }, [])
 
+  useEffect(() => {
+    return window.electronAPI.onInstantDataChanged(() => {
+      void useStore.getState().loadData()
+    })
+  }, [])
+
   if (!loaded) {
     return (
       <div className="app-loading">
