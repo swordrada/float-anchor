@@ -2,6 +2,8 @@ import { useEffect, useState, useRef, useCallback } from 'react'
 import { useStore, getEffectiveProvider } from './store'
 import Sidebar from './components/Sidebar'
 import CanvasView from './components/CanvasView'
+import BoardOverviewView from './components/BoardOverviewView'
+import DailyJournalView from './components/DailyJournalView'
 import SettingsModal from './components/SettingsModal'
 import type { WebDAVSyncResult } from './types'
 
@@ -13,6 +15,8 @@ const BACKGROUND_SYNC_INTERVAL_MS = 30000
 export default function App() {
   const { loaded, loadData, loadSettings } = useStore()
   const showSettings = useStore((s) => s.showSettings)
+  const boardViewMode = useStore((s) => s.boardViewMode)
+  const activeView = useStore((s) => s.activeView)
   const syncProvider = useStore((s) => getEffectiveProvider(s.settings))
   const syncDecision = useStore((s) => s.syncDecision)
   const [platform, setPlatform] = useState<string>('darwin')
@@ -196,7 +200,7 @@ export default function App() {
       <div className="app-body">
         <Sidebar width={sidebarWidth} />
         <div className="sidebar-resize-handle" onMouseDown={onResizeStart} />
-        <CanvasView />
+        {activeView === 'journal' ? <DailyJournalView /> : boardViewMode === 'overview' ? <BoardOverviewView /> : <CanvasView />}
       </div>
       {showSettings && <SettingsModal />}
     </div>

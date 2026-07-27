@@ -130,6 +130,47 @@ describe('getEffectiveProvider', () => {
 
 })
 
+describe('每日记与白板视图', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    ;(globalThis as unknown as { window: unknown }).window = { electronAPI: { writeData: () => Promise.resolve(true) } }
+    useStore.setState({
+      activeView: 'boards',
+      boardViewMode: 'canvas',
+      journal: { entriesByDate: {} },
+      journalViewMode: 'detail',
+      journalSelectedDate: '2026-07-25',
+    })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    delete (globalThis as unknown as { window?: unknown }).window
+  })
+
+  it('切到每日记并保存内容后，保留日期和标题', () => {
+    useStore.getState().openDailyJournal()
+    useStore.getState().upsertJournalEntry('2026-07-25', { customTitle: '今天的记录', content: '保留每日记' })
+
+    const state = useStore.getState()
+    expect(state.activeView).toBe('journal')
+    expect(state.journal.entriesByDate['2026-07-25']).toMatchObject({
+      customTitle: '今天的记录',
+      content: '保留每日记',
+    })
+  })
+
+  it('从白板总览打开指定白板时回到白板画布', () => {
+    useStore.getState().openBoardOverview()
+    useStore.getState().setActiveCanvas('cv')
+
+    const state = useStore.getState()
+    expect(state.activeView).toBe('boards')
+    expect(state.boardViewMode).toBe('canvas')
+    expect(state.activeCanvasId).toBe('cv')
+  })
+})
+
 describe('删除卡片清理悬空引用（#3）', () => {
   const mkCard = (id: string): Card => ({ id, title: '', content: '', x: 0, y: 0, width: 200, height: 150 })
 

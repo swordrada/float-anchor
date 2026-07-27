@@ -206,15 +206,20 @@ function ColorPicker({
 interface Props {
   content: string
   onChange: (md: string) => void
+  placeholder?: string
 }
 
-export default function RichEditor({ content, onChange }: Props) {
+export default function RichEditor({
+  content,
+  onChange,
+  placeholder = '输入内容，支持 Markdown 语法...',
+}: Props) {
   const [showColorPicker, setShowColorPicker] = useState(false)
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
-        heading: { levels: [2, 3, 4] },
+        heading: { levels: [1, 2, 3, 4] },
       }),
       Link.configure({
         openOnClick: false,
@@ -234,7 +239,7 @@ export default function RichEditor({ content, onChange }: Props) {
         HTMLAttributes: { class: 'editor-highlight' },
       }),
       Placeholder.configure({
-        placeholder: '输入内容，支持 Markdown 语法...',
+        placeholder,
       }),
     ],
     content: mdToHtml(content),
@@ -329,6 +334,15 @@ export default function RichEditor({ content, onChange }: Props) {
   return (
     <>
       <div className="card-edit-toolbar">
+        <TB
+          run={() =>
+            editor.chain().focus().toggleHeading({ level: 1 }).run()
+          }
+          on={editor.isActive('heading', { level: 1 })}
+          tip="一级标题"
+        >
+          H1
+        </TB>
         <TB
           run={() =>
             editor.chain().focus().toggleHeading({ level: 2 }).run()

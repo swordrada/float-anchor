@@ -67,7 +67,24 @@ export interface Canvas {
 export interface AppData {
   canvases: Canvas[]
   activeCanvasId: string | null
+  boardViewMode?: 'overview' | 'canvas'
+  activeView?: 'boards' | 'journal'
+  journal?: JournalData
+  journalViewMode?: 'detail' | 'table'
+  journalSelectedDate?: string
   _syncTimestamp?: number
+}
+
+export interface JournalEntry {
+  date: string
+  customTitle?: string
+  content: string
+  createdAt: number
+  updatedAt: number
+}
+
+export interface JournalData {
+  entriesByDate: Record<string, JournalEntry>
 }
 
 export interface WebDAVConfig {
