@@ -260,7 +260,8 @@ export default function SettingsModal() {
   const syncProvider = getEffectiveProvider(settings)
   // 当前查看的标签页（本地状态，与真实生效 provider 分离）：
   // 点 WebDAV/GitHub 标签只切换面板，不改生效 provider；只有保存/连接成功才真正切换。
-  const [activeTab, setActiveTab] = useState(syncProvider)
+  const [activeSyncTab, setActiveSyncTab] = useState(syncProvider)
+  const [settingsTab, setSettingsTab] = useState<'general' | 'app' | 'sync' | 'data'>('general')
 
   const markSyncSuccess = useCallback(() => {
     useStore.getState().setSyncStatus('success')
@@ -432,8 +433,21 @@ export default function SettingsModal() {
   return (
     <div className="settings-overlay" onClick={handleOverlayClick}>
       <div className="settings-modal">
-        <h2>设置</h2>
+        <aside className="settings-tabs" aria-label="设置分类">
+          <div className="settings-tabs-title">设置</div>
+          <button className={`settings-tab ${settingsTab === 'general' ? 'active' : ''}`} onClick={() => setSettingsTab('general')}>常规</button>
+          <button className={`settings-tab ${settingsTab === 'app' ? 'active' : ''}`} onClick={() => setSettingsTab('app')}>应用</button>
+          <button className={`settings-tab ${settingsTab === 'sync' ? 'active' : ''}`} onClick={() => setSettingsTab('sync')}>云同步</button>
+          <button className={`settings-tab ${settingsTab === 'data' ? 'active' : ''}`} onClick={() => setSettingsTab('data')}>数据管理</button>
+        </aside>
 
+        <div className="settings-content">
+          <div className="settings-content-header">
+            <h2>{settingsTab === 'general' ? '常规' : settingsTab === 'app' ? '应用' : settingsTab === 'sync' ? '云同步' : '数据管理'}</h2>
+            <button className="settings-close" onClick={() => setShowSettings(false)} aria-label="关闭设置">×</button>
+          </div>
+
+        {settingsTab === 'general' && <>
         <div className="settings-section">
           <h3>外观</h3>
           <div className="theme-switcher">
@@ -477,7 +491,9 @@ export default function SettingsModal() {
             ))}
           </div>
         </div>
+        </>}
 
+        {settingsTab === 'app' &&
         <div className="settings-section">
           <h3>软件更新</h3>
           <div className="update-section">
@@ -523,32 +539,33 @@ export default function SettingsModal() {
               )}
             </div>
           </div>
-        </div>
+        </div>}
 
+        {settingsTab === 'sync' &&
         <div className="settings-section">
           <h3>云同步</h3>
           <div className="provider-switcher">
             <button
-              className={`provider-option ${activeTab === 'webdav' ? 'active' : ''}`}
-              onClick={() => setActiveTab('webdav')}
+              className={`provider-option ${activeSyncTab === 'webdav' ? 'active' : ''}`}
+              onClick={() => setActiveSyncTab('webdav')}
             >
               坚果云 WebDAV{syncProvider === 'webdav' ? ' ✓' : ''}
             </button>
             <button
-              className={`provider-option ${activeTab === 'github' ? 'active' : ''}`}
-              onClick={() => setActiveTab('github')}
+              className={`provider-option ${activeSyncTab === 'github' ? 'active' : ''}`}
+              onClick={() => setActiveSyncTab('github')}
             >
               GitHub{syncProvider === 'github' ? ' ✓' : ''}
             </button>
             <button
-              className={`provider-option ${activeTab === 'none' ? 'active' : ''}`}
-              onClick={() => { setActiveTab('none'); useStore.getState().setSyncProvider('none') }}
+              className={`provider-option ${activeSyncTab === 'none' ? 'active' : ''}`}
+              onClick={() => { setActiveSyncTab('none'); useStore.getState().setSyncProvider('none') }}
             >
               关闭{syncProvider === 'none' ? ' ✓' : ''}
             </button>
           </div>
 
-          {activeTab === 'github' && (
+          {activeSyncTab === 'github' && (
             <div className="github-panel">
               {ghConnected ? (
                 <>
@@ -578,7 +595,7 @@ export default function SettingsModal() {
             </div>
           )}
 
-          {activeTab === 'webdav' && (
+          {activeSyncTab === 'webdav' && (
             <div className="webdav-form">
               <div className="webdav-field">
                 <label>服务器地址</label>
@@ -669,8 +686,9 @@ export default function SettingsModal() {
               )}
             </>
           )}
-        </div>
+        </div>}
 
+        {settingsTab === 'data' && <>
         <div className="settings-section">
           <h3>数据管理</h3>
           <div className="data-management">
@@ -800,9 +818,11 @@ export default function SettingsModal() {
             </div>
           </div>
         )}
+        </>}
 
         <div className="settings-footer">
           <button onClick={() => setShowSettings(false)}>关闭</button>
+        </div>
         </div>
       </div>
     </div>

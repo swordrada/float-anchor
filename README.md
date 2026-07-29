@@ -57,13 +57,13 @@
 
 ## 下载安装
 
-当前稳定版为 [`v1.0.15`](https://github.com/swordrada/float-anchor/releases/tag/v1.0.15)，可在 [Releases](https://github.com/swordrada/float-anchor/releases) 页面下载：
+当前稳定版为 [`v1.0.16`](https://github.com/swordrada/float-anchor/releases/tag/v1.0.16)，可在 [Releases](https://github.com/swordrada/float-anchor/releases) 页面下载：
 
 | 文件 | 平台 | 适用设备 |
 |------|------|----------|
-| `FloatAnchor-1.0.15-mac-arm64.dmg` | macOS | Apple Silicon (M1/M2/M3/M4) |
-| `FloatAnchor-1.0.15-mac-x64.dmg` | macOS | Intel Mac |
-| `FloatAnchor-1.0.15-win-setup.exe` | Windows | 64 位 Windows |
+| `FloatAnchor-1.0.16-mac-arm64.dmg` | macOS | Apple Silicon (M1/M2/M3/M4) |
+| `FloatAnchor-1.0.16-mac-x64.dmg` | macOS | Intel Mac |
+| `FloatAnchor-1.0.16-win-setup.exe` | Windows | 64 位 Windows |
 
 ### macOS 安装
 
