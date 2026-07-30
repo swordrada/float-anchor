@@ -69,7 +69,7 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: |
-          npm run build:win
+          npm run build:win -- --publish never
 
       - name: Show Windows release assets
         shell: pwsh
@@ -108,7 +108,7 @@ jobs:
         run: npm ci
 
       - name: Build macOS packages
-        run: npm run build:mac
+        run: npm run build:mac -- --publish never
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
 
