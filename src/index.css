@@ -1696,6 +1696,7 @@ input {
 .rich-editor-wrap {
   overflow-y: auto;
   max-height: 400px;
+  overscroll-behavior: contain;
 }
 
 .rich-editor .ProseMirror {
@@ -1740,6 +1741,23 @@ input {
   color: var(--accent);
   text-decoration: underline;
   cursor: pointer;
+}
+
+.rich-editor .ProseMirror > img + p:last-child:has(> br.ProseMirror-trailingBreak:only-child) {
+  position: relative;
+  min-height: 34px;
+  margin-top: 5px;
+  padding: 7px 10px;
+  border: 1px dashed color-mix(in srgb, var(--accent) 34%, var(--border));
+  border-radius: 6px;
+  cursor: text;
+}
+
+.rich-editor .ProseMirror > img + p:last-child:has(> br.ProseMirror-trailingBreak:only-child)::before {
+  content: '点击此处继续输入…';
+  color: var(--text-muted);
+  font-size: 12px;
+  pointer-events: none;
 }
 
 /* ===== Markdown Body Styles ===== */
@@ -3633,13 +3651,18 @@ input {
 
 .instant-content::-webkit-scrollbar,
 .instant-markdown-preview::-webkit-scrollbar,
-.instant-editor textarea::-webkit-scrollbar {
+.instant-editor textarea::-webkit-scrollbar,
+.instant-rich-editor .rich-editor-wrap::-webkit-scrollbar,
+.instant-rich-editor .card-edit-toolbar::-webkit-scrollbar {
   width: 5px;
+  height: 4px;
 }
 
 .instant-content::-webkit-scrollbar-thumb,
 .instant-markdown-preview::-webkit-scrollbar-thumb,
-.instant-editor textarea::-webkit-scrollbar-thumb {
+.instant-editor textarea::-webkit-scrollbar-thumb,
+.instant-rich-editor .rich-editor-wrap::-webkit-scrollbar-thumb,
+.instant-rich-editor .card-edit-toolbar::-webkit-scrollbar-thumb {
   border-radius: 10px;
   background: color-mix(in srgb, var(--instant-faint) 55%, transparent);
 }
@@ -3843,6 +3866,18 @@ input {
   cursor: not-allowed;
 }
 
+.instant-live-markdown {
+  color: var(--instant-faint);
+  font-family: var(--mono);
+  font-size: 9px;
+}
+
+.instant-note-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .instant-editor {
   min-height: 170px;
   display: flex;
@@ -3903,6 +3938,85 @@ input {
   color: var(--instant-faint);
   font-family: var(--font);
   line-height: 1.75;
+}
+
+.instant-rich-editor {
+  min-height: 0;
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.instant-rich-editor .card-edit-toolbar {
+  min-height: 35px;
+  margin: 0;
+  padding: 4px 7px;
+  flex: 0 0 auto;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-top: 0;
+  border-bottom-color: var(--instant-line);
+  background: color-mix(in srgb, var(--instant-surface) 92%, var(--instant-paper));
+}
+
+.instant-rich-editor .card-edit-toolbar button {
+  flex: 0 0 auto;
+  color: var(--instant-muted);
+}
+
+.instant-rich-editor .card-edit-toolbar button:hover {
+  color: var(--instant-accent-deep);
+  background: var(--instant-accent-soft);
+}
+
+.instant-rich-editor .card-edit-toolbar button.active {
+  color: var(--instant-accent-deep);
+  background: var(--instant-accent-soft);
+}
+
+.instant-rich-editor .tb-sep {
+  background: var(--instant-line);
+}
+
+.instant-rich-editor .rich-editor-wrap {
+  min-height: 88px;
+  max-height: none;
+  padding: 10px 14px 14px;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+
+.instant-rich-editor .rich-editor .ProseMirror {
+  min-height: 100%;
+  padding: 0;
+  color: var(--instant-ink);
+  font-family: var(--font);
+  font-size: 12px;
+  line-height: 1.65;
+}
+
+.instant-rich-editor .rich-editor .ProseMirror p.is-editor-empty:first-child::before {
+  color: var(--instant-faint);
+  font-family: var(--font);
+  line-height: 1.75;
+}
+
+.instant-rich-editor .markdown-body h1,
+.instant-rich-editor .markdown-body h2,
+.instant-rich-editor .markdown-body h3,
+.instant-rich-editor .markdown-body h4,
+.instant-rich-editor .markdown-body p {
+  color: var(--instant-ink);
+}
+
+.instant-rich-editor .markdown-body code {
+  background: color-mix(in srgb, var(--instant-line) 70%, transparent);
+}
+
+.instant-rich-editor .rich-editor .ProseMirror > img + p:last-child:has(> br.ProseMirror-trailingBreak:only-child) {
+  border-color: color-mix(in srgb, var(--instant-accent) 34%, var(--instant-line));
 }
 
 .instant-markdown-preview {
@@ -4232,7 +4346,43 @@ input {
   }
 
   .instant-editor textarea,
+  .instant-rich-editor .rich-editor-wrap,
   .instant-markdown-preview {
     min-height: 78px;
+  }
+}
+
+@media (max-width: 390px) {
+  .instant-topbar {
+    padding-left: 9px;
+  }
+
+  .instant-drag-hint {
+    font-size: 0;
+  }
+
+  .instant-window-actions .instant-hide-button,
+  .instant-window-actions .instant-restore-button {
+    width: 29px;
+    padding: 0;
+  }
+
+  .instant-window-actions .instant-hide-button span,
+  .instant-window-actions .instant-restore-button span {
+    display: none;
+  }
+
+  .instant-content {
+    padding-inline: 14px;
+  }
+}
+
+@media (max-height: 480px) {
+  .instant-hero {
+    display: none;
+  }
+
+  .instant-content {
+    padding-top: 11px;
   }
 }

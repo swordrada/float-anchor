@@ -1,5 +1,6 @@
 import { useCallback, useState, useRef, useEffect } from 'react'
 import { useEditor, EditorContent } from '@tiptap/react'
+import { Extension } from '@tiptap/core'
 import StarterKit from '@tiptap/starter-kit'
 import Placeholder from '@tiptap/extension-placeholder'
 import Link from '@tiptap/extension-link'
@@ -7,6 +8,7 @@ import Image from '@tiptap/extension-image'
 import Color from '@tiptap/extension-color'
 import { TextStyle } from '@tiptap/extension-text-style'
 import Highlight from '@tiptap/extension-highlight'
+import { Plugin } from '@tiptap/pm/state'
 import { marked } from 'marked'
 import TurndownService from 'turndown'
 
@@ -78,17 +80,39 @@ async function insertImageFile(editor: ReturnType<typeof useEditor>, file: File)
     const res = await window.electronAPI.saveImage(buf, file.type)
     if (res?.name) {
       editor.chain().focus().setImage({ src: `fa-img://${res.name}` }).run()
+      requestAnimationFrame(() => editor.chain().focus('end').run())
       return
     }
   } catch { /* 落到下面回退 */ }
   const src = await fileToBase64(file) // 回退：保证粘贴永不失败
   editor.chain().focus().setImage({ src }).run()
+  requestAnimationFrame(() => editor.chain().focus('end').run())
 }
 
 function mdToHtml(md: string): string {
   if (!md.trim()) return ''
   return marked.parse(md, { async: false }) as string
 }
+
+// A block image at the end of a ProseMirror document otherwise leaves no
+// obvious place for the user to continue writing. Keep a real paragraph after
+// it so the caret has a stable, clickable destination.
+const TrailingParagraphAfterImage = Extension.create({
+  name: 'trailingParagraphAfterImage',
+
+  addProseMirrorPlugins() {
+    return [
+      new Plugin({
+        appendTransaction: (_transactions, _oldState, newState) => {
+          if (newState.doc.lastChild?.type.name !== 'image') return null
+          const paragraph = newState.schema.nodes.paragraph
+          if (!paragraph) return null
+          return newState.tr.insert(newState.doc.content.size, paragraph.create())
+        },
+      }),
+    ]
+  },
+})
 
 const TEXT_COLORS = [
   { label: 'Default', color: '' },
@@ -220,6 +244,7 @@ export default function RichEditor({
     extensions: [
       StarterKit.configure({
         heading: { levels: [1, 2, 3, 4] },
+        link: false,
       }),
       Link.configure({
         openOnClick: false,
@@ -232,6 +257,7 @@ export default function RichEditor({
         allowBase64: true,
         HTMLAttributes: { class: 'editor-image' },
       }),
+      TrailingParagraphAfterImage,
       TextStyle,
       Color,
       Highlight.configure({
@@ -243,6 +269,11 @@ export default function RichEditor({
       }),
     ],
     content: mdToHtml(content),
+    onCreate: ({ editor: e }) => {
+      if (e.state.doc.lastChild?.type.name === 'image') {
+        e.commands.insertContentAt(e.state.doc.content.size, { type: 'paragraph' })
+      }
+    },
     onUpdate: ({ editor: e }) => {
       onChange(td.turndown(e.getHTML()))
     },

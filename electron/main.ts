@@ -390,10 +390,10 @@ function createInstantWindow() {
   mainWindow?.minimize()
 
   instantWindow = new BrowserWindow({
-    width: 520,
-    height: 660,
-    minWidth: 430,
-    minHeight: 560,
+    width: 430,
+    height: 560,
+    minWidth: 360,
+    minHeight: 440,
     maxWidth: 720,
     maxHeight: 900,
     frame: false,

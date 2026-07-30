@@ -110,6 +110,32 @@ describe('finalizeCardMove（分区贴靠的集成行为）', () => {
     expect(b.cardIds).toContain('cX')                  // 吸纳
     expect(b.x + b.width).toBeGreaterThanOrEqual(2412) // 扩展到包住 cX 右边(2212+200)
   })
+
+  it('超出分区宽度和高度的卡片放入空分区后，分区自动吸纳并扩容', () => {
+    const oversized = mkCard('large', 50, 60, 500, 400)
+    const section = mkSection('S', 0, 0, 300, 220, [])
+    setup([oversized], [section])
+
+    useStore.getState().finalizeCardMove('large')
+
+    const fitted = useStore.getState().canvases[0].sections![0]
+    expect(fitted.cardIds).toContain('large')
+    expect(fitted.x + fitted.width).toBeGreaterThanOrEqual(oversized.x + oversized.width + 24)
+    expect(fitted.y + fitted.height).toBeGreaterThanOrEqual(oversized.y + oversized.height! + 24)
+  })
+
+  it('只有轻微擦边的卡片不会误吸入并拉伸分区', () => {
+    const grazing = mkCard('grazing', 295, 60, 200, 100)
+    const section = mkSection('S', 0, 0, 300, 220, [])
+    setup([grazing], [section])
+
+    useStore.getState().finalizeCardMove('grazing')
+
+    const unchanged = useStore.getState().canvases[0].sections![0]
+    expect(unchanged.cardIds).toEqual([])
+    expect({ x: unchanged.x, y: unchanged.y, width: unchanged.width, height: unchanged.height })
+      .toEqual({ x: 0, y: 0, width: 300, height: 220 })
+  })
 })
 
 describe('getEffectiveProvider', () => {
@@ -261,6 +287,18 @@ describe('即刻模式写入', () => {
       title: '稍后继续展开',
       content: '',
     })
+  })
+
+  it('成员卡片保存后变高时，所属分区同步扩展到底部留白之外', () => {
+    const cardId = useStore.getState().createInstantCard('cv', 's1', '长笔记', '正文')
+    expect(cardId).not.toBeNull()
+
+    useStore.getState().updateCard(cardId!, { height: 620 })
+
+    const canvas = useStore.getState().canvases[0]
+    const card = canvas.cards.find((item) => item.id === cardId)!
+    const section = canvas.sections?.find((item) => item.id === 's1')!
+    expect(section.y + section.height).toBeGreaterThanOrEqual(card.y + card.height! + 24)
   })
 })
 

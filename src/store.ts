@@ -527,12 +527,30 @@ export const useStore = create<AppState>((set, get) => ({
     set((s) => ({
       canvases: s.canvases.map((c) =>
         c.id === activeCanvasId
-          ? {
-              ...c,
-              cards: c.cards.map((card) =>
-                card.id === cardId ? { ...card, ...patch } : card,
-              ),
-            }
+          ? (() => {
+              const currentCard = c.cards.find((card) => card.id === cardId)
+              if (!currentCard) return c
+              const updatedCard = { ...currentCard, ...patch }
+              const cardRight = updatedCard.x + updatedCard.width + 24
+              const cardBottom = updatedCard.y + (updatedCard.height ?? 200) + 24
+              return {
+                ...c,
+                cards: c.cards.map((card) =>
+                  card.id === cardId ? updatedCard : card,
+                ),
+                // A card can become taller after its rich content is measured
+                // on save. Member sections must grow with it so the card never
+                // protrudes beyond the section boundary.
+                sections: (c.sections ?? []).map((section) => {
+                  if (!(section.cardIds ?? []).includes(cardId)) return section
+                  return {
+                    ...section,
+                    width: Math.max(section.width, cardRight - section.x),
+                    height: Math.max(section.height, cardBottom - section.y),
+                  }
+                }),
+              }
+            })()
           : c,
       ),
     }))
@@ -687,9 +705,37 @@ export const useStore = create<AppState>((set, get) => ({
     const SECTION_HEADER = 36
 
     const isFullyInside = (cd: Card, sec: Section) =>
-      cd.x >= sec.x && cd.y >= sec.y + 32 &&
+      cd.x >= sec.x && cd.y >= sec.y + SECTION_HEADER &&
       cd.x + cd.width <= sec.x + sec.width &&
       cd.y + (cd.height ?? 200) <= sec.y + sec.height
+
+    const placementInSection = (cd: Card, sec: Section) => {
+      const cardHeight = cd.height ?? 200
+      const contentTop = sec.y + SECTION_HEADER
+      const contentHeight = Math.max(0, sec.height - SECTION_HEADER)
+      const overlapWidth = Math.max(
+        0,
+        Math.min(cd.x + cd.width, sec.x + sec.width) - Math.max(cd.x, sec.x),
+      )
+      const overlapHeight = Math.max(
+        0,
+        Math.min(cd.y + cardHeight, sec.y + sec.height) - Math.max(cd.y, contentTop),
+      )
+      const overlapArea = overlapWidth * overlapHeight
+      const cardArea = cd.width * cardHeight
+      const contentArea = sec.width * contentHeight
+      const overlapRatio = overlapArea / Math.max(1, Math.min(cardArea, contentArea))
+      const centerX = cd.x + cd.width / 2
+      const centerY = cd.y + cardHeight / 2
+      const centerInside =
+        centerX >= sec.x && centerX <= sec.x + sec.width &&
+        centerY >= contentTop && centerY <= sec.y + sec.height
+
+      return {
+        accepted: centerInside || overlapRatio >= 0.25,
+        overlapArea,
+      }
+    }
 
     const snappedToMemberOf = (cd: Card, sec: Section): boolean => {
       const members = sec.cardIds ?? []
@@ -716,66 +762,57 @@ export const useStore = create<AppState>((set, get) => ({
         maxX = Math.max(maxX, ac.x + ac.width)
         maxY = Math.max(maxY, ac.y + (ac.height ?? 200))
       }
+      const nextX = Math.min(sec.x, minX - SECTION_PAD)
+      const nextY = Math.min(sec.y, minY - SECTION_PAD - SECTION_HEADER)
+      const nextRight = Math.max(sec.x + sec.width, maxX + SECTION_PAD)
+      const nextBottom = Math.max(sec.y + sec.height, maxY + SECTION_PAD)
       return {
         ...sec,
         cardIds: memberIds,
-        x: Math.min(sec.x, minX - SECTION_PAD),
-        y: Math.min(sec.y, minY - SECTION_PAD - SECTION_HEADER),
-        width: Math.max(sec.width, maxX - Math.min(sec.x, minX - SECTION_PAD) + SECTION_PAD),
-        height: Math.max(sec.height, maxY - Math.min(sec.y, minY - SECTION_PAD - SECTION_HEADER) + SECTION_PAD + SECTION_HEADER),
+        x: nextX,
+        y: nextY,
+        width: nextRight - nextX,
+        height: nextBottom - nextY,
       }
     }
 
-    let changed = false
-    let removedFrom = false
+    const candidates = sections
+      .map((sec) => {
+        const placement = placementInSection(card, sec)
+        const snapped = snappedToMemberOf(card, sec)
+        return { sec, ...placement, snapped }
+      })
+      .filter((candidate) => candidate.accepted || candidate.snapped)
+      .sort((a, b) => {
+        if (b.overlapArea !== a.overlapArea) return b.overlapArea - a.overlapArea
+        const aWasMember = (a.sec.cardIds ?? []).includes(cardId) ? 1 : 0
+        const bWasMember = (b.sec.cardIds ?? []).includes(cardId) ? 1 : 0
+        return bWasMember - aWasMember
+      })
 
-    let result = sections.map((sec) => {
+    const targetSection = candidates[0]?.sec
+    const result = sections.map((sec) => {
       const members = sec.cardIds ?? []
       const isMember = members.includes(cardId)
 
-      if (isMember) {
-        if (isFullyInside(card, sec)) return sec
-        changed = true
-        removedFrom = true
-        return { ...sec, cardIds: members.filter((id) => id !== cardId) }
+      if (sec.id !== targetSection?.id) {
+        return isMember
+          ? { ...sec, cardIds: members.filter((id) => id !== cardId) }
+          : sec
       }
 
-      return sec
+      const nextMembers = isMember ? members : [...members, cardId]
+      if (isFullyInside(card, sec)) {
+        return isMember ? sec : { ...sec, cardIds: nextMembers }
+      }
+      return expandToFit(sec, nextMembers)
     })
 
-    if (!removedFrom) {
-      result = result.map((sec) => {
-        if ((sec.cardIds ?? []).includes(cardId)) return sec
-        if (!snappedToMemberOf(card, sec)) return sec
-        changed = true
-        return expandToFit(sec, [...(sec.cardIds ?? []), cardId])
-      })
-    }
-
-    if (!changed) return
-
-    const belongsTo = result.filter((sec) => (sec.cardIds ?? []).includes(cardId))
-    let dedupedSections = result
-    if (belongsTo.length > 1) {
-      let bestSection: Section | null = null
-      let bestOverlap = -1
-      const cw = card.width; const ch = card.height ?? 200
-      for (const sec of belongsTo) {
-        const ox = Math.max(0, Math.min(card.x + cw, sec.x + sec.width) - Math.max(card.x, sec.x))
-        const oy = Math.max(0, Math.min(card.y + ch, sec.y + sec.height) - Math.max(card.y, sec.y))
-        if (ox * oy > bestOverlap) { bestOverlap = ox * oy; bestSection = sec }
-      }
-      dedupedSections = result.map((sec) => {
-        if (sec === bestSection) return sec
-        const ids = sec.cardIds ?? []
-        if (!ids.includes(cardId)) return sec
-        return { ...sec, cardIds: ids.filter((id) => id !== cardId) }
-      })
-    }
+    if (result.every((sec, index) => sec === sections[index])) return
 
     set((s) => ({
       canvases: s.canvases.map((c) =>
-        c.id === activeCanvasId ? { ...c, sections: dedupedSections } : c,
+        c.id === activeCanvasId ? { ...c, sections: result } : c,
       ),
     }))
     get().persist()

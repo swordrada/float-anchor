@@ -347,6 +347,7 @@ export default function CanvasView() {
     const onWheel = (e: WheelEvent) => {
       const t = e.target as HTMLElement
       if (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT') return
+      if (!e.ctrlKey && !e.metaKey && t.closest('.rich-editor-wrap')) return
       e.preventDefault()
 
       if (e.ctrlKey || e.metaKey) {

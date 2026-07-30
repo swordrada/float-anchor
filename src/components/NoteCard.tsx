@@ -195,6 +195,22 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
 
   useEffect(() => {
     if (!isEditing) return
+    const cardElement = cardRef.current
+    if (!cardElement) return
+    const handleWheel = (event: WheelEvent) => {
+      if (event.ctrlKey || event.metaKey || Math.abs(event.deltaY) < 0.5) return
+      const scroller = cardElement.querySelector<HTMLElement>('.rich-editor-wrap')
+      if (!scroller || scroller.scrollHeight <= scroller.clientHeight) return
+      event.preventDefault()
+      event.stopPropagation()
+      scroller.scrollTop += event.deltaY / Math.max(scale, 0.15)
+    }
+    cardElement.addEventListener('wheel', handleWheel, { passive: false })
+    return () => cardElement.removeEventListener('wheel', handleWheel)
+  }, [isEditing, scale])
+
+  useEffect(() => {
+    if (!isEditing) return
     const handler = (e: MouseEvent) => {
       if (cardRef.current && !cardRef.current.contains(e.target as Node)) {
         autoFitAndClose()

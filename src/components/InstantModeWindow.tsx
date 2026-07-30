@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
 import { shallow } from 'zustand/shallow'
 import { useStore } from '../store'
+import RichEditor from './RichEditor'
 
 type CreateTarget = 'canvas' | 'section'
 
@@ -96,12 +97,13 @@ export default function InstantModeWindow() {
   const [title, setTitle] = useState(() => localStorage.getItem(TITLE_DRAFT_KEY) ?? '')
   const [content, setContent] = useState(() => localStorage.getItem(DRAFT_KEY) ?? '')
   const [createTarget, setCreateTarget] = useState<CreateTarget | null>(null)
+  const [editorKey, setEditorKey] = useState(0)
   const [preview, setPreview] = useState(false)
   const [alwaysOnTop, setAlwaysOnTop] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [notice, setNotice] = useState('')
   const titleInputRef = useRef<HTMLInputElement>(null)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const editorContainerRef = useRef<HTMLDivElement>(null)
   const noticeTimer = useRef<ReturnType<typeof setTimeout>>()
 
   useEffect(() => {
@@ -174,36 +176,6 @@ export default function InstantModeWindow() {
     setCreateTarget(null)
   }
 
-  const insertInline = (before: string, after: string, placeholder: string) => {
-    const textarea = textareaRef.current
-    if (!textarea) return
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-    const selected = content.slice(start, end) || placeholder
-    const next = content.slice(0, start) + before + selected + after + content.slice(end)
-    setContent(next)
-    requestAnimationFrame(() => {
-      textarea.focus()
-      textarea.setSelectionRange(start + before.length, start + before.length + selected.length)
-    })
-  }
-
-  const prefixLines = (prefix: string) => {
-    const textarea = textareaRef.current
-    if (!textarea) return
-    const start = content.lastIndexOf('\n', textarea.selectionStart - 1) + 1
-    const selectionEnd = textarea.selectionEnd
-    const endBreak = content.indexOf('\n', selectionEnd)
-    const end = endBreak === -1 ? content.length : endBreak
-    const selected = content.slice(start, end) || '列表项'
-    const replacement = selected.split('\n').map((line) => `${prefix}${line}`).join('\n')
-    setContent(content.slice(0, start) + replacement + content.slice(end))
-    requestAnimationFrame(() => {
-      textarea.focus()
-      textarea.setSelectionRange(start + prefix.length, start + replacement.length)
-    })
-  }
-
   const submitCard = async () => {
     if ((!title.trim() && !content.trim()) || !selectedCanvasId || submitting) return
     setSubmitting(true)
@@ -223,6 +195,7 @@ export default function InstantModeWindow() {
     window.electronAPI.instantDataChanged()
     setTitle('')
     setContent('')
+    setEditorKey((value) => value + 1)
     setPreview(false)
     setSubmitting(false)
     showNotice(sectionName ? `已投入「${sectionName}」` : '卡片已投入白板')
@@ -370,16 +343,28 @@ export default function InstantModeWindow() {
               <span>03</span>
               卡片笔记
             </label>
-            <button
-              className={preview ? 'active' : ''}
-              onClick={() => setPreview((value) => !value)}
-              disabled={!title.trim() && !content.trim()}
-            >
-              {preview ? '继续编辑' : '预览 Markdown'}
-            </button>
+            <div className="instant-note-heading-actions">
+              <span className="instant-live-markdown">实时 Markdown · {content.length}</span>
+              <button
+                className={preview ? 'active' : ''}
+                onClick={() => setPreview((value) => !value)}
+                disabled={!title.trim() && !content.trim()}
+              >
+                {preview ? '继续编辑' : '预览'}
+              </button>
+            </div>
           </div>
 
-          <div className="instant-editor">
+          <div
+            ref={editorContainerRef}
+            className="instant-editor"
+            onKeyDown={(event) => {
+              if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                event.preventDefault()
+                void submitCard()
+              }
+            }}
+          >
             {preview ? (
               <div className="instant-markdown-preview markdown-body">
                 {title.trim() && <h1 className="instant-preview-title">{title.trim()}</h1>}
@@ -398,60 +383,22 @@ export default function InstantModeWindow() {
                   spellCheck
                   autoFocus
                   onKeyDown={(event) => {
-                    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-                      event.preventDefault()
-                      void submitCard()
-                    }
                     if (event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey) {
                       event.preventDefault()
-                      textareaRef.current?.focus()
+                      editorContainerRef.current?.querySelector<HTMLElement>('.ProseMirror')?.focus()
                     }
                   }}
                 />
-                <textarea
-                  id="instant-note-input"
-                  ref={textareaRef}
-                  value={content}
-                  onChange={(event) => setContent(event.target.value)}
-                  placeholder={'此刻在想什么？\n支持 Markdown，⌘ + Enter 即刻投入。'}
-                  spellCheck
-                  onKeyDown={(event) => {
-                    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-                      event.preventDefault()
-                      void submitCard()
-                    }
-                    if (event.key === 'Tab') {
-                      event.preventDefault()
-                      insertInline('  ', '', '')
-                    }
-                  }}
-                />
+                <div id="instant-note-input" className="instant-rich-editor">
+                  <RichEditor
+                    key={editorKey}
+                    content={content}
+                    onChange={setContent}
+                    placeholder="此刻在想什么？输入 “- ”、“1. ” 或 “## ” 后会立即呈现 Markdown 样式…"
+                  />
+                </div>
               </>
             )}
-            <div className="instant-markdown-toolbar">
-              <div className="instant-format-actions">
-                <button onClick={() => prefixLines('## ')} title="标题">H</button>
-                <button onClick={() => insertInline('**', '**', '加粗文字')} title="加粗"><strong>B</strong></button>
-                <button onClick={() => insertInline('`', '`', '代码')} title="行内代码">&lt;/&gt;</button>
-                <button onClick={() => prefixLines('- ')} title="无序列表">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <circle cx="4" cy="7" r="1" fill="currentColor" /><circle cx="4" cy="12" r="1" fill="currentColor" /><circle cx="4" cy="17" r="1" fill="currentColor" />
-                    <path d="M8 7h12M8 12h12M8 17h12" />
-                  </svg>
-                </button>
-                <button onClick={() => prefixLines('- [ ] ')} title="待办">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="3" y="3" width="7" height="7" rx="1" /><path d="M14 6h7M14 18h7" /><rect x="3" y="14" width="7" height="7" rx="1" />
-                  </svg>
-                </button>
-                <button onClick={() => insertInline('[', '](https://)', '链接文字')} title="链接">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M10 13a5 5 0 007.1.1l2-2a5 5 0 00-7.1-7.1l-1.1 1.1M14 11a5 5 0 00-7.1-.1l-2 2A5 5 0 0012 20l1.1-1.1" />
-                  </svg>
-                </button>
-              </div>
-              <span>{content.length}</span>
-            </div>
           </div>
         </section>
 
