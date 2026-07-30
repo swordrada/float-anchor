@@ -10,6 +10,7 @@ import ConfirmModal from './ConfirmModal'
 import type { Card, Connection, Section, CanvasLabel, TextBox } from '../types'
 import type { MenuItem } from './ContextMenu'
 import { scKey } from '../shortcuts'
+import { getWheelZoomFactor } from '../zoom'
 
 const MIN_SCALE = 0.15
 const MAX_SCALE = 3
@@ -353,13 +354,16 @@ export default function CanvasView() {
       if (e.ctrlKey || e.metaKey) {
         const s = scaleVal.current
         const p = pan.current
-        const factor = 1 + (-e.deltaY) * 0.008
+        const factor = getWheelZoomFactor(e.deltaY, e.deltaMode)
         const ns = Math.min(Math.max(s * factor, MIN_SCALE), MAX_SCALE)
         const ratio = ns / s
         const rect = vp.getBoundingClientRect()
         const cx = e.clientX - rect.left
         const cy = e.clientY - rect.top
-        pan.current = { x: Math.round(cx - (cx - p.x) * ratio), y: Math.round(cy - (cy - p.y) * ratio) }
+        pan.current = {
+          x: cx - (cx - p.x) * ratio,
+          y: cy - (cy - p.y) * ratio,
+        }
         scaleVal.current = ns
       } else {
         const dx = Math.abs(e.deltaX) < 0.5 ? 0 : e.deltaX
