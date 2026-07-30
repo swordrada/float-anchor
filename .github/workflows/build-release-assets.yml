@@ -6,12 +6,6 @@ on:
       tag:
         description: Release tag to build
         required: true
-        default: v1.0.10
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/build-release-assets.yml
 
 permissions:
   contents: write
@@ -27,9 +21,10 @@ jobs:
         id: release
         shell: bash
         run: |
-          TAG="${{ github.event.inputs.tag }}"
+          TAG="${{ inputs.tag }}"
           if [ -z "$TAG" ]; then
-            TAG="v1.0.10"
+            echo "A release tag is required." >&2
+            exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
