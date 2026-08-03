@@ -145,16 +145,19 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
 
   const prevContent = useRef(card?.content)
   const prevTitle = useRef(card?.title)
+  const measuredOnce = useRef(false)
   useEffect(() => {
     if (isEditing || !card) return
+    const firstMeasure = !measuredOnce.current
     const contentChanged = prevContent.current !== card.content
     const titleChanged = prevTitle.current !== card.title
+    measuredOnce.current = true
     prevContent.current = card.content
     prevTitle.current = card.title
-    if (!contentChanged && !titleChanged) return
+    if (!firstMeasure && !contentChanged && !titleChanged) return
     requestAnimationFrame(() => {
       const h = measureHeight()
-      if (h != null && card.height && Math.abs(h - card.height) > 2) {
+      if (h != null && (card.height == null || Math.abs(h - card.height) > 2)) {
         updateCard(cardId, { height: h })
       }
     })
@@ -295,7 +298,7 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
         resizeRaf = requestAnimationFrame(() => {
           const nw = Math.max(200, ow + (ev.clientX - sx) / s)
           const nh = Math.max(100, oh + (ev.clientY - sy) / s)
-          updateCard(cardId, { width: nw, height: nh })
+          updateCard(cardId, { width: nw, height: nh, instantOrder: undefined })
         })
       }
       const onUp = () => {

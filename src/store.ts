@@ -10,6 +10,181 @@ export function getEffectiveProvider(settings: AppSettings): SyncProvider {
 
 interface SnapRect { x: number; y: number; width: number; height: number }
 
+const INSTANT_CARD_WIDTH = 373
+const INSTANT_GAP = 12
+const SECTION_PAD = 24
+const SECTION_HEADER = 36
+
+interface LayoutRect extends SnapRect { id: string }
+
+export function estimateInstantCardHeight(title: string, content: string): number {
+  const lines = content.replace(/\r\n?/g, '\n').split('\n')
+  let visualLines = 0
+  let blockExtra = 0
+  let inCodeBlock = false
+
+  for (const rawLine of lines) {
+    const line = rawLine.trimEnd()
+    if (/^\s*```/.test(line)) {
+      inCodeBlock = !inCodeBlock
+      visualLines += 1
+      continue
+    }
+    if (!line.trim()) {
+      visualLines += 0.45
+      continue
+    }
+    if (/!\[[^\]]*\]\([^)]*\)/.test(line) || /<img\b/i.test(line)) blockExtra += 180
+    if (/^\s{0,3}#{1,6}\s+/.test(line)) blockExtra += 12
+    if (/^\s*>/.test(line)) blockExtra += 4
+
+    const plain = line
+      .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+      .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+      .replace(/<[^>]+>/g, '')
+      .replace(/^\s*(?:[-*+] |\d+\. |#{1,6}\s+)/, '')
+    const charsPerLine = inCodeBlock ? 48 : 44
+    visualLines += Math.max(1, Math.ceil(Math.max(plain.length, 1) / charsPerLine))
+  }
+
+  const dragHandle = 24
+  const titleHeight = title.trim() ? 43 : 0
+  const contentHeight = content.trim()
+    ? 26 + visualLines * 22 + blockExtra
+    : 54
+  return Math.max(200, Math.ceil(dragHandle + titleHeight + contentHeight))
+}
+
+function overlapsWithGap(candidate: SnapRect, other: SnapRect): boolean {
+  return candidate.x < other.x + other.width + INSTANT_GAP &&
+    candidate.x + candidate.width + INSTANT_GAP > other.x &&
+    candidate.y < other.y + other.height + INSTANT_GAP &&
+    candidate.y + candidate.height + INSTANT_GAP > other.y
+}
+
+function findInstantCardPlacement(section: Section, placed: LayoutRect[], width: number, height: number) {
+  const origin = { x: section.x + SECTION_PAD, y: section.y + SECTION_HEADER + SECTION_PAD }
+  if (placed.length === 0) return origin
+
+  const minX = Math.min(...placed.map((rect) => rect.x))
+  const minY = Math.min(...placed.map((rect) => rect.y))
+  const maxRight = Math.max(...placed.map((rect) => rect.x + rect.width))
+  const maxBottom = Math.max(...placed.map((rect) => rect.y + rect.height))
+  const candidates: Array<{ x: number; y: number }> = [origin]
+
+  for (const rect of placed) {
+    candidates.push(
+      { x: rect.x + rect.width + INSTANT_GAP, y: rect.y },
+      { x: rect.x, y: rect.y + rect.height + INSTANT_GAP },
+      { x: maxRight + INSTANT_GAP, y: rect.y },
+      { x: rect.x, y: maxBottom + INSTANT_GAP },
+    )
+  }
+  candidates.push(
+    { x: maxRight + INSTANT_GAP, y: minY },
+    { x: minX, y: maxBottom + INSTANT_GAP },
+  )
+
+  const seen = new Set<string>()
+  const valid = candidates.filter((candidate) => {
+    const key = `${candidate.x}:${candidate.y}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    const rect = { ...candidate, width, height }
+    return !placed.some((other) => overlapsWithGap(rect, other))
+  })
+
+  const byReadingOrder = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+    a.y - b.y || a.x - b.x
+
+  // The first pair always starts horizontally.
+  if (placed.length === 1) {
+    const right = valid.find((candidate) => candidate.x === maxRight + INSTANT_GAP && candidate.y === minY)
+    if (right) return right
+  }
+
+  // Fill an already-open row/column before growing the outer bounds again.
+  const interior = valid
+    .filter((candidate) =>
+      candidate.x >= minX && candidate.y >= minY &&
+      candidate.x + width <= maxRight && candidate.y + height <= maxBottom,
+    )
+    .sort(byReadingOrder)
+  if (interior[0]) return interior[0]
+
+  const contentWidth = maxRight - minX
+  const contentHeight = maxBottom - minY
+  if (contentWidth > contentHeight) {
+    const downward = valid
+      .filter((candidate) => candidate.y >= maxBottom + INSTANT_GAP)
+      .sort((a, b) => a.x - b.x || a.y - b.y)
+    if (downward[0]) return downward[0]
+  } else {
+    const rightward = valid
+      .filter((candidate) => candidate.x >= maxRight + INSTANT_GAP)
+      .sort((a, b) => a.y - b.y || a.x - b.x)
+    if (rightward[0]) return rightward[0]
+  }
+
+  return valid.sort((a, b) => {
+    const aWidth = Math.max(maxRight, a.x + width) - Math.min(minX, a.x)
+    const aHeight = Math.max(maxBottom, a.y + height) - Math.min(minY, a.y)
+    const bWidth = Math.max(maxRight, b.x + width) - Math.min(minX, b.x)
+    const bHeight = Math.max(maxBottom, b.y + height) - Math.min(minY, b.y)
+    return Math.abs(aWidth - aHeight) - Math.abs(bWidth - bHeight) || byReadingOrder(a, b)
+  })[0] ?? origin
+}
+
+function reflowInstantCardsInSection(canvas: Canvas, section: Section): { cards: Card[]; section: Section } {
+  const memberIds = new Set(section.cardIds ?? [])
+  const instantCards = canvas.cards
+    .filter((card) => memberIds.has(card.id) && card.instantOrder != null)
+    .sort((a, b) => a.instantOrder! - b.instantOrder!)
+  const instantIds = new Set(instantCards.map((card) => card.id))
+  const placed: LayoutRect[] = canvas.cards
+    .filter((card) => memberIds.has(card.id) && !instantIds.has(card.id))
+    .map((card) => ({
+      id: card.id,
+      x: card.x,
+      y: card.y,
+      width: card.width,
+      height: card.height ?? 200,
+    }))
+  const positions = new Map<string, { x: number; y: number }>()
+
+  for (const card of instantCards) {
+    const height = card.height ?? estimateInstantCardHeight(card.title, card.content)
+    const position = findInstantCardPlacement(section, placed, card.width, height)
+    positions.set(card.id, position)
+    placed.push({ id: card.id, ...position, width: card.width, height })
+  }
+
+  const cards = canvas.cards.map((card) => {
+    const position = positions.get(card.id)
+    return position ? { ...card, ...position } : card
+  })
+  if (placed.length === 0) return { cards, section }
+
+  const minX = Math.min(...placed.map((rect) => rect.x))
+  const minY = Math.min(...placed.map((rect) => rect.y))
+  const maxRight = Math.max(...placed.map((rect) => rect.x + rect.width))
+  const maxBottom = Math.max(...placed.map((rect) => rect.y + rect.height))
+  const nextX = Math.min(section.x, minX - SECTION_PAD)
+  const nextY = Math.min(section.y, minY - SECTION_PAD - SECTION_HEADER)
+  const nextRight = Math.max(section.x + section.width, maxRight + SECTION_PAD)
+  const nextBottom = Math.max(section.y + section.height, maxBottom + SECTION_PAD)
+  return {
+    cards,
+    section: {
+      ...section,
+      x: nextX,
+      y: nextY,
+      width: nextRight - nextX,
+      height: nextBottom - nextY,
+    },
+  }
+}
+
 // 判断卡片 cd 是否真正"贴靠"在 member 旁边：在一个轴方向上贴合（边缘吻合或相隔一个 GAP），
 // 且在另一个轴方向上有实际重叠。仅单轴边缘吻合（如只有 x 对齐、y 却相距很远）不算贴靠——
 // 否则磁吸把卡片吸到远处分区成员的同列/同行坐标后，那个远分区会误判并拉伸过来框住卡片。
@@ -367,18 +542,25 @@ export const useStore = create<AppState>((set, get) => ({
       ? (canvas.sections ?? []).find((section) => section.id === sectionId)
       : undefined
     const cardId = uuid()
-    const cardWidth = 373
-    const estimatedHeight = 200
+    const cardWidth = INSTANT_CARD_WIDTH
+    const estimatedHeight = estimateInstantCardHeight(title, content)
     let x = 0
     let y = 0
 
     if (selectedSection) {
       const memberIds = new Set(selectedSection.cardIds ?? [])
-      const members = canvas.cards.filter((card) => memberIds.has(card.id))
-      x = selectedSection.x + 24
-      y = members.length
-        ? Math.max(...members.map((card) => card.y + (card.height ?? estimatedHeight))) + 12
-        : selectedSection.y + 60
+      const members: LayoutRect[] = canvas.cards
+        .filter((card) => memberIds.has(card.id))
+        .map((card) => ({
+          id: card.id,
+          x: card.x,
+          y: card.y,
+          width: card.width,
+          height: card.height ?? estimateInstantCardHeight(card.title, card.content),
+        }))
+      const placement = findInstantCardPlacement(selectedSection, members, cardWidth, estimatedHeight)
+      x = placement.x
+      y = placement.y
     } else if (canvas.cards.length) {
       const rightMost = canvas.cards.reduce((best, card) =>
         card.x + card.width > best.x + best.width ? card : best,
@@ -394,23 +576,33 @@ export const useStore = create<AppState>((set, get) => ({
       x,
       y,
       width: cardWidth,
+      height: estimatedHeight,
+      ...(selectedSection
+        ? { instantOrder: Math.max(0, ...canvas.cards.map((item) => item.instantOrder ?? 0)) + 1 }
+        : {}),
     }
 
     set((s) => ({
       canvases: s.canvases.map((item) => {
         if (item.id !== canvasId) return item
-        return {
+        const nextSection = selectedSection
+          ? { ...selectedSection, cardIds: [...(selectedSection.cardIds ?? []), cardId] }
+          : null
+        const nextCanvas = {
           ...item,
           cards: [...item.cards, card],
-          sections: (item.sections ?? []).map((section) => {
-            if (section.id !== selectedSection?.id) return section
-            return {
-              ...section,
-              width: Math.max(section.width, x + cardWidth + 24 - section.x),
-              height: Math.max(section.height, y + estimatedHeight + 24 - section.y),
-              cardIds: [...(section.cardIds ?? []), cardId],
-            }
-          }),
+          sections: (item.sections ?? []).map((section) =>
+            section.id === nextSection?.id ? nextSection : section,
+          ),
+        }
+        if (!nextSection) return nextCanvas
+        const reflowed = reflowInstantCardsInSection(nextCanvas, nextSection)
+        return {
+          ...nextCanvas,
+          cards: reflowed.cards,
+          sections: nextCanvas.sections.map((section) =>
+            section.id === nextSection.id ? reflowed.section : section,
+          ),
         }
       }),
       activeCanvasId: canvasId,
@@ -531,25 +723,25 @@ export const useStore = create<AppState>((set, get) => ({
               const currentCard = c.cards.find((card) => card.id === cardId)
               if (!currentCard) return c
               const updatedCard = { ...currentCard, ...patch }
-              const cardRight = updatedCard.x + updatedCard.width + 24
-              const cardBottom = updatedCard.y + (updatedCard.height ?? 200) + 24
-              return {
+              let nextCanvas: Canvas = {
                 ...c,
                 cards: c.cards.map((card) =>
                   card.id === cardId ? updatedCard : card,
                 ),
-                // A card can become taller after its rich content is measured
-                // on save. Member sections must grow with it so the card never
-                // protrudes beyond the section boundary.
-                sections: (c.sections ?? []).map((section) => {
-                  if (!(section.cardIds ?? []).includes(cardId)) return section
-                  return {
-                    ...section,
-                    width: Math.max(section.width, cardRight - section.x),
-                    height: Math.max(section.height, cardBottom - section.y),
-                  }
-                }),
               }
+              for (const section of c.sections ?? []) {
+                if (!(section.cardIds ?? []).includes(cardId)) continue
+                const currentSection = nextCanvas.sections?.find((item) => item.id === section.id) ?? section
+                const reflowed = reflowInstantCardsInSection(nextCanvas, currentSection)
+                nextCanvas = {
+                  ...nextCanvas,
+                  cards: reflowed.cards,
+                  sections: (nextCanvas.sections ?? []).map((item) =>
+                    item.id === section.id ? reflowed.section : item,
+                  ),
+                }
+              }
+              return nextCanvas
             })()
           : c,
       ),
@@ -630,7 +822,7 @@ export const useStore = create<AppState>((set, get) => ({
 
     if (self.x === bestX && self.y === bestY) return
 
-    const movedCard = { ...self, x: bestX, y: bestY }
+    const movedCard = { ...self, x: bestX, y: bestY, instantOrder: undefined }
     const sections = canvas.sections ?? []
     let updatedSections = sections
 

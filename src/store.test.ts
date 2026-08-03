@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
-import { getEffectiveProvider, isCardSnappedAdjacent, useStore } from './store'
+import { estimateInstantCardHeight, getEffectiveProvider, isCardSnappedAdjacent, useStore } from './store'
 import type { AppSettings, Card, Section } from './types'
 
 describe('isCardSnappedAdjacent（拖拽贴靠分区成员的判定）', () => {
@@ -298,6 +298,68 @@ describe('即刻模式写入', () => {
     const canvas = useStore.getState().canvases[0]
     const card = canvas.cards.find((item) => item.id === cardId)!
     const section = canvas.sections?.find((item) => item.id === 's1')!
+    expect(section.y + section.height).toBeGreaterThanOrEqual(card.y + card.height! + 24)
+  })
+
+  it('连续写入时先横排、再换行并优先填满当前行', () => {
+    const ids = Array.from({ length: 4 }, (_, index) =>
+      useStore.getState().createInstantCard('cv', 's1', `卡片 ${index + 1}`, '正文'),
+    ) as string[]
+    const canvas = useStore.getState().canvases[0]
+    const cards = ids.map((id) => canvas.cards.find((card) => card.id === id)!)
+    const [first, second, third, fourth] = cards
+
+    expect(second.x).toBe(first.x + first.width + 12)
+    expect(second.y).toBe(first.y)
+    expect(third.x).toBe(first.x)
+    expect(third.y).toBe(first.y + first.height! + 12)
+    expect(fourth.x).toBe(second.x)
+    expect(fourth.y).toBe(third.y)
+
+    for (let i = 0; i < cards.length; i++) {
+      for (let j = i + 1; j < cards.length; j++) {
+        const a = cards[i]
+        const b = cards[j]
+        const overlap = a.x < b.x + b.width && a.x + a.width > b.x &&
+          a.y < b.y + b.height! && a.y + a.height! > b.y
+        expect(overlap).toBe(false)
+      }
+    }
+  })
+
+  it('真实高度变大后重排后续即刻卡片并继续包裹全部内容', () => {
+    const ids = Array.from({ length: 4 }, (_, index) =>
+      useStore.getState().createInstantCard('cv', 's1', `卡片 ${index + 1}`, '正文'),
+    ) as string[]
+    useStore.getState().updateCard(ids[0], { height: 620 })
+
+    const canvas = useStore.getState().canvases[0]
+    const cards = ids.map((id) => canvas.cards.find((card) => card.id === id)!)
+    const section = canvas.sections![0]
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i]
+      expect(card.x).toBeGreaterThanOrEqual(section.x + 24)
+      expect(card.y).toBeGreaterThanOrEqual(section.y + 36 + 24)
+      expect(card.x + card.width + 24).toBeLessThanOrEqual(section.x + section.width)
+      expect(card.y + card.height! + 24).toBeLessThanOrEqual(section.y + section.height)
+      for (let j = i + 1; j < cards.length; j++) {
+        const other = cards[j]
+        const overlap = card.x < other.x + other.width && card.x + card.width > other.x &&
+          card.y < other.y + other.height! && card.y + card.height! > other.y
+        expect(overlap).toBe(false)
+      }
+    }
+  })
+
+  it('长 Markdown 在首次渲染前也使用内容高度扩展分区', () => {
+    const content = Array.from({ length: 36 }, (_, index) => `- 第 ${index + 1} 行较长的卡片内容`).join('\n')
+    const cardId = useStore.getState().createInstantCard('cv', 's1', '长卡片', content)!
+    const canvas = useStore.getState().canvases[0]
+    const card = canvas.cards.find((item) => item.id === cardId)!
+    const section = canvas.sections![0]
+
+    expect(card.height).toBe(estimateInstantCardHeight('长卡片', content))
+    expect(card.height).toBeGreaterThan(700)
     expect(section.y + section.height).toBeGreaterThanOrEqual(card.y + card.height! + 24)
   })
 })
