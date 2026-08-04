@@ -11,6 +11,7 @@ import type { Card, Connection, Section, CanvasLabel, TextBox } from '../types'
 import type { MenuItem } from './ContextMenu'
 import { scKey } from '../shortcuts'
 import { getWheelZoomFactor } from '../zoom'
+import { expandCardIdsForSelectedSections } from '../canvasSelection'
 
 const MIN_SCALE = 0.15
 const MAX_SCALE = 3
@@ -567,9 +568,14 @@ export default function CanvasView() {
     const origLabels = new Map<string, { x: number; y: number }>()
     const origSections = new Map<string, { x: number; y: number }>()
     const origTexts = new Map<string, { x: number; y: number }>()
+    const dragCardIds = expandCardIdsForSelectedSections(
+      selection.cardIds,
+      selection.sectionIds,
+      canvas0?.sections ?? [],
+    )
     if (canvas0) {
       for (const c of canvas0.cards) {
-        if (selection.cardIds.has(c.id)) origCards.set(c.id, { x: c.x, y: c.y })
+        if (dragCardIds.has(c.id)) origCards.set(c.id, { x: c.x, y: c.y })
       }
       for (const l of canvas0.labels ?? []) {
         if (selection.labelIds.has(l.id)) origLabels.set(l.id, { x: l.x, y: l.y })
@@ -592,7 +598,7 @@ export default function CanvasView() {
         const canvas = store.canvases.find((c) => c.id === store.activeCanvasId)
         if (!canvas) return
 
-        const selectedCardData = canvas.cards.filter((c) => selection.cardIds.has(c.id))
+        const selectedCardData = canvas.cards.filter((c) => dragCardIds.has(c.id))
         if (selectedCardData.length === 0) {
           const updatedLabels = (canvas.labels ?? []).map((l) => {
             const orig = origLabels.get(l.id)
@@ -622,7 +628,7 @@ export default function CanvasView() {
         let bestDistY = SNAP_DIST
 
         for (const other of canvas.cards) {
-          if (selection.cardIds.has(other.id)) continue
+          if (dragCardIds.has(other.id)) continue
           const ow = other.width
           const oh = other.height ?? 300
 
