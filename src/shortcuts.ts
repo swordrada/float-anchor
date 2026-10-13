@@ -14,6 +14,8 @@ export const SHORTCUTS: ShortcutDef[] = [
   { id: 'arrange', label: '自动排布选中', mac: 'L', win: 'L' },
   { id: 'compactSection', label: '分区最佳大小（选中分区）', mac: 'F', win: 'F' },
   { id: 'selectAll', label: '全选', mac: '⌘A', win: 'Ctrl+A' },
+  { id: 'toggleSelection', label: '切换卡片多选', mac: '⌘ / Shift + 点击', win: 'Ctrl / Shift + 点击' },
+  { id: 'addSelection', label: '追加框选（空白处）', mac: '⌘ / Shift + 拖框', win: 'Ctrl / Shift + 拖框' },
   { id: 'edit', label: '编辑选中（单选时）', mac: '⏎', win: 'Enter' },
   { id: 'delete', label: '删除选中', mac: '⌫', win: 'Del' },
   { id: 'nudge', label: '微移选中（⇧ 大步）', mac: '方向键', win: '方向键' },

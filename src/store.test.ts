@@ -156,6 +156,245 @@ describe('getEffectiveProvider', () => {
 
 })
 
+describe('从所选卡片创建分区', () => {
+  const originalPersist = useStore.getState().persist
+  const persist = vi.fn()
+  const mkCard = (id: string, x: number, y: number, width = 200, height?: number): Card =>
+    ({ id, title: '', content: '', x, y, width, height })
+
+  beforeEach(() => {
+    persist.mockClear()
+    useStore.setState({
+      activeCanvasId: 'cv',
+      canvases: [{ id: 'cv', name: 'cv', cards: [] }],
+      persist,
+    })
+  })
+
+  afterEach(() => {
+    useStore.setState({ persist: originalPersist })
+  })
+
+  it('包裹所有成员并留出标题和内边距，不移动卡片或吸纳未选中的卡片', () => {
+    const cards = [mkCard('a', -100, 50, 180, 80), mkCard('b', 200, 120, 300, 350), mkCard('outside', 100, 200, 50, 50)]
+    useStore.setState({ canvases: [{ id: 'cv', name: 'cv', cards }] })
+
+    const sectionId = useStore.getState().createSectionFromCards(['a', 'b'])
+    const canvas = useStore.getState().canvases[0]
+
+    expect(sectionId).not.toBeNull()
+    expect(canvas.sections).toEqual([{
+      id: sectionId,
+      name: '分区',
+      x: -124,
+      y: -10,
+      width: 648,
+      height: 504,
+      color: '#9ca3af',
+      cardIds: ['a', 'b'],
+    }])
+    expect(canvas.cards).toEqual(cards)
+    expect(persist).toHaveBeenCalledTimes(1)
+  })
+
+  it('转移已有分区的成员，忽略重复和其他画布的卡片 ID，且原子保存', () => {
+    const first: Section = { id: 'first', name: '原分区', x: 0, y: 0, width: 500, height: 500, color: '#fff', cardIds: ['a', 'keep'] }
+    const second: Section = { ...first, id: 'second', cardIds: ['b'] }
+    const otherCanvas = { id: 'other', name: '另一画布', cards: [mkCard('other-card', 0, 0, 200, 150)], sections: [{ ...first, id: 'other-section', cardIds: ['other-card'] }] }
+    useStore.setState({ canvases: [
+      { id: 'cv', name: 'cv', cards: [mkCard('a', 20, 60, 200, 150), mkCard('b', 250, 60, 200, 150), mkCard('keep', 20, 250, 200, 150)], sections: [first, second] },
+      otherCanvas,
+    ] })
+    const changes = vi.fn()
+    const unsubscribe = useStore.subscribe(changes)
+
+    const sectionId = useStore.getState().createSectionFromCards(['a', 'a', 'missing', 'other-card', 'b'])
+    unsubscribe()
+    const [canvas, unchangedCanvas] = useStore.getState().canvases
+
+    expect(canvas.sections![0]).toEqual({ ...first, cardIds: ['keep'] })
+    expect(canvas.sections![1]).toEqual({ ...second, cardIds: [] })
+    expect(canvas.sections![2]).toMatchObject({ id: sectionId, color: '#34d399', cardIds: ['a', 'b'] })
+    expect(unchangedCanvas).toBe(otherCanvas)
+    expect(changes).toHaveBeenCalledTimes(1)
+    expect(persist).toHaveBeenCalledTimes(1)
+  })
+
+  it('再次编组同一分区的全部成员时返回原分区，不创建重叠的空壳', () => {
+    const cards = [mkCard('a', 20, 60, 200, 150), mkCard('b', 250, 60, 200, 150)]
+    useStore.setState({ canvases: [{ id: 'cv', name: 'cv', cards }] })
+    const firstId = useStore.getState().createSectionFromCards(['a', 'b'])
+    const canvases = useStore.getState().canvases
+    persist.mockClear()
+
+    const repeatedId = useStore.getState().createSectionFromCards(['b', 'a', 'a', 'missing'])
+
+    expect(repeatedId).toBe(firstId)
+    expect(useStore.getState().canvases).toBe(canvases)
+    expect(useStore.getState().canvases[0].sections).toHaveLength(1)
+    expect(persist).not.toHaveBeenCalled()
+  })
+
+  it('成员引用相同但卡片已经位于旧分区外时，创建能包裹当前位置的新分区', () => {
+    const cards = [mkCard('a', 20, 60, 200, 150), mkCard('b', 250, 60, 200, 150)]
+    useStore.setState({ canvases: [{ id: 'cv', name: 'cv', cards }] })
+    const firstId = useStore.getState().createSectionFromCards(['a', 'b'])
+    useStore.getState().nudgeUnits({ cardIds: ['a', 'b'], labelIds: [], sectionIds: [], textIds: [] }, 2000, 500)
+
+    const newId = useStore.getState().createSectionFromCards(['a', 'b'])
+
+    expect(newId).not.toBe(firstId)
+    const sections = useStore.getState().canvases[0].sections!
+    expect(sections.find((section) => section.id === firstId)!.cardIds).toEqual([])
+    expect(sections.find((section) => section.id === newId)).toMatchObject({ x: 1996, y: 500, cardIds: ['a', 'b'] })
+  })
+
+  it('整体拖动新分区时只带动成员，删除分区保留卡片及连线', () => {
+    const cards = [mkCard('a', 20, 60, 200, 150), mkCard('b', 250, 60, 200, 150), mkCard('unselected', 500, 60, 200, 150)]
+    const connections = [{ id: 'connection', fromCardId: 'a', toCardId: 'b' }]
+    useStore.setState({ canvases: [{ id: 'cv', name: 'cv', cards, connections }] })
+    const sectionId = useStore.getState().createSectionFromCards(['a', 'b'])!
+
+    useStore.getState().moveSection(sectionId, 30, -15)
+    let canvas = useStore.getState().canvases[0]
+    expect(canvas.cards).toEqual([
+      { ...cards[0], x: 50, y: 45 },
+      { ...cards[1], x: 280, y: 45 },
+      cards[2],
+    ])
+    expect(canvas.sections![0]).toMatchObject({ x: 26, y: -15 })
+
+    useStore.getState().deleteSection(sectionId)
+    canvas = useStore.getState().canvases[0]
+    expect(canvas.sections).toEqual([])
+    expect(canvas.cards).toHaveLength(3)
+    expect(canvas.connections).toEqual(connections)
+  })
+
+  it('在重叠的旧分区内编组后，轻微拖动卡片不会把归属改回旧分区', () => {
+    useStore.setState({ canvases: [{
+      id: 'cv',
+      name: 'cv',
+      cards: [mkCard('a', 20, 60, 200, 150), mkCard('b', 400, 300, 200, 150), mkCard('keep', 800, 800, 200, 150)],
+      sections: [{ id: 'old', name: '旧分区', x: -200, y: -200, width: 1200, height: 1200, color: '#fff', cardIds: ['a', 'b', 'keep'] }],
+    }] })
+    const sectionId = useStore.getState().createSectionFromCards(['a', 'b'])
+
+    useStore.getState().moveCard('a', 35, 80)
+    useStore.getState().finalizeCardMove('a')
+
+    const sections = useStore.getState().canvases[0].sections!
+    expect(sections.find((section) => section.id === 'old')!.cardIds).toEqual(['keep'])
+    expect(sections.find((section) => section.id === sectionId)!.cardIds).toEqual(['a', 'b'])
+  })
+
+  it('批量拖出分区的相邻成员不会互相吸附并拉伸原分区', () => {
+    const cards = [mkCard('a', 20, 60, 200, 150), mkCard('b', 232, 60, 200, 150)]
+    useStore.setState({ canvases: [{ id: 'cv', name: 'cv', cards }] })
+    useStore.getState().createSectionFromCards(['a', 'b'])
+    const originalSection = useStore.getState().canvases[0].sections![0]
+    useStore.getState().nudgeUnits({ cardIds: ['a', 'b'], labelIds: [], textIds: [], sectionIds: [] }, 2000, 500)
+    const movedCards = useStore.getState().canvases[0].cards
+    persist.mockClear()
+
+    useStore.getState().finalizeCardMoves(['a', 'b', 'a', 'missing'])
+
+    const canvas = useStore.getState().canvases[0]
+    expect(canvas.sections).toEqual([{ ...originalSection, cardIds: [] }])
+    expect(canvas.cards).toEqual(movedCards)
+    expect(persist).toHaveBeenCalled()
+  })
+
+  it('批量拖入新分区时转移全部有效成员，保持卡片相对位置和原分区大小', () => {
+    const cards = [mkCard('a', 20, 60, 200, 150), mkCard('b', 232, 60, 200, 150)]
+    useStore.setState({ canvases: [{ id: 'cv', name: 'cv', cards }] })
+    useStore.getState().createSectionFromCards(['a', 'b'])
+    const canvas = useStore.getState().canvases[0]
+    const originalSection = canvas.sections![0]
+    const target: Section = { id: 'target', name: '目标分区', x: 1000, y: 100, width: 500, height: 300, color: '#fff', cardIds: [] }
+    useStore.setState({ canvases: [{ ...canvas, sections: [...canvas.sections!, target] }] })
+    useStore.getState().nudgeUnits({ cardIds: ['a', 'b'], labelIds: [], textIds: [], sectionIds: [] }, 1000, 100)
+    const movedCards = useStore.getState().canvases[0].cards
+
+    useStore.getState().finalizeCardMoves(['a', 'b', 'a', 'missing'])
+
+    const movedCanvas = useStore.getState().canvases[0]
+    expect(movedCanvas.sections).toEqual([
+      { ...originalSection, cardIds: [] },
+      { ...target, cardIds: ['a', 'b'] },
+    ])
+    expect(movedCanvas.cards).toEqual(movedCards)
+    expect(movedCanvas.cards[1].x - movedCanvas.cards[0].x).toBe(212)
+    expect(movedCanvas.cards[1].y - movedCanvas.cards[0].y).toBe(0)
+  })
+
+  it('批量完成重叠区域内的拖动时保留完整包含卡片的新分组归属', () => {
+    const old: Section = { id: 'old', name: '旧分区', x: -200, y: -200, width: 1200, height: 1200, color: '#fff', cardIds: ['a', 'b', 'keep'] }
+    useStore.setState({ canvases: [{
+      id: 'cv', name: 'cv',
+      cards: [mkCard('a', 20, 60, 200, 150), mkCard('b', 400, 300, 200, 150), mkCard('keep', 800, 800, 200, 150)],
+      sections: [old],
+    }] })
+    const sectionId = useStore.getState().createSectionFromCards(['a', 'b'])
+    useStore.getState().nudgeUnits({ cardIds: ['a', 'b'], labelIds: [], textIds: [], sectionIds: [] }, 10, 10)
+
+    useStore.getState().finalizeCardMoves(['a', 'b'])
+
+    const sections = useStore.getState().canvases[0].sections!
+    expect(sections.find((section) => section.id === 'old')).toEqual({ ...old, cardIds: ['keep'] })
+    expect(sections.find((section) => section.id === sectionId)!.cardIds).toEqual(['a', 'b'])
+  })
+
+  it('未测量高度的长卡片使用内容估算，之后测量变高时继续扩容', () => {
+    const content = Array.from({ length: 36 }, (_, index) => `第 ${index + 1} 行内容`).join('\n')
+    const card = { ...mkCard('a', 100, 80), title: '长卡片', content }
+    useStore.setState({ canvases: [{ id: 'cv', name: 'cv', cards: [card] }] })
+
+    useStore.getState().createSectionFromCards(['a'])
+    let section = useStore.getState().canvases[0].sections![0]
+    expect(section.y + section.height).toBe(card.y + estimateInstantCardHeight(card.title, card.content) + 24)
+    expect(section.height).toBeGreaterThan(700)
+    expect(useStore.getState().canvases[0].cards[0].height).toBeUndefined()
+
+    useStore.getState().updateCard('a', { height: 1200 })
+    section = useStore.getState().canvases[0].sections![0]
+    expect(section.y + section.height).toBeGreaterThanOrEqual(card.y + 1200 + 24)
+  })
+
+  it('手动编组后保持即刻卡片布局，测高和编辑不重新排列成员', () => {
+    const cards = [
+      { ...mkCard('a', 250, 60, 200, 150), instantOrder: 1 },
+      { ...mkCard('b', 20, 60, 200, 150), instantOrder: 2 },
+    ]
+    useStore.setState({ canvases: [{ id: 'cv', name: 'cv', cards }] })
+    useStore.getState().createSectionFromCards(['a', 'b'])
+
+    useStore.getState().updateCard('a', { height: 300, content: '更新正文' })
+
+    const groupedCards = useStore.getState().canvases[0].cards
+    expect(groupedCards.map(({ x, y, instantOrder }) => ({ x, y, instantOrder }))).toEqual([
+      { x: 250, y: 60, instantOrder: undefined },
+      { x: 20, y: 60, instantOrder: undefined },
+    ])
+  })
+
+  it('空选择或全部失效的选择不会创建空分区或保存', () => {
+    const canvases = useStore.getState().canvases
+    expect(useStore.getState().createSectionFromCards([])).toBeNull()
+    expect(useStore.getState().createSectionFromCards(['missing', 'missing'])).toBeNull()
+    expect(useStore.getState().canvases).toBe(canvases)
+    expect(persist).not.toHaveBeenCalled()
+  })
+
+  it('没有有效的当前画布时安全返回', () => {
+    useStore.setState({ activeCanvasId: null })
+    expect(useStore.getState().createSectionFromCards(['a'])).toBeNull()
+    useStore.setState({ activeCanvasId: 'missing' })
+    expect(useStore.getState().createSectionFromCards(['a'])).toBeNull()
+    expect(persist).not.toHaveBeenCalled()
+  })
+})
+
 describe('每日记与白板视图', () => {
   beforeEach(() => {
     vi.useFakeTimers()
@@ -409,6 +648,53 @@ describe('删除卡片清理悬空引用（#3）', () => {
     expect(cv.cards.map((c) => c.id)).toEqual(['c1', 'c3'])
     expect((cv.connections ?? []).map((c) => c.id)).toEqual([])               // cn1、cn2 都引用 c2 → 全清
     expect(cv.sections![0].cardIds).toEqual(['c1'])                           // 分区成员去掉 c2
+  })
+})
+
+describe('卡片连线只引用当前画布的有效卡片', () => {
+  const originalPersist = useStore.getState().persist
+  const persist = vi.fn()
+  const mkCard = (id: string): Card => ({ id, title: '', content: '', x: 0, y: 0, width: 200, height: 150 })
+
+  beforeEach(() => {
+    persist.mockClear()
+    useStore.setState({
+      activeCanvasId: 'cv',
+      canvases: [
+        { id: 'cv', name: 'cv', cards: [mkCard('a'), mkCard('b')] },
+        { id: 'other', name: 'other', cards: [mkCard('other-card')] },
+      ],
+      persist,
+    })
+  })
+
+  afterEach(() => {
+    useStore.setState({ persist: originalPersist })
+  })
+
+  it('拒绝自连、已删除端点和其他画布端点，不保存悬空引用', () => {
+    const canvases = useStore.getState().canvases
+    const { addConnection } = useStore.getState()
+    addConnection('a', 'a')
+    addConnection('deleted', 'b')
+    addConnection('a', 'deleted')
+    addConnection('other-card', 'b')
+    addConnection('a', 'other-card')
+    expect(useStore.getState().canvases).toBe(canvases)
+    expect(persist).not.toHaveBeenCalled()
+  })
+
+  it('有效连线同方向去重，反方向仍可单独创建', () => {
+    const { addConnection } = useStore.getState()
+    addConnection('a', 'b')
+    addConnection('a', 'b')
+    addConnection('b', 'a')
+
+    expect(useStore.getState().canvases[0].connections).toEqual([
+      { id: expect.any(String), fromCardId: 'a', toCardId: 'b' },
+      { id: expect.any(String), fromCardId: 'b', toCardId: 'a' },
+    ])
+    expect(persist).toHaveBeenCalledTimes(2)
   })
 })
 

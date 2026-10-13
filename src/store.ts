@@ -272,6 +272,7 @@ interface AppState {
   moveLabel: (labelId: string, x: number, y: number) => void
 
   addSection: (x: number, y: number) => void
+  createSectionFromCards: (cardIds: string[]) => string | null
   updateSection: (sectionId: string, patch: Partial<Section>) => void
   deleteSection: (sectionId: string) => void
   moveSection: (sectionId: string, dx: number, dy: number) => void
@@ -282,6 +283,7 @@ interface AppState {
   nudgeUnits: (ids: { cardIds: string[]; labelIds: string[]; sectionIds: string[]; textIds: string[] }, dx: number, dy: number) => void
 
   finalizeCardMove: (cardId: string) => void
+  finalizeCardMoves: (cardIds: string[]) => void
 
   addConnection: (fromCardId: string, toCardId: string) => void
   deleteConnection: (connId: string) => void
@@ -860,6 +862,7 @@ export const useStore = create<AppState>((set, get) => ({
 
       const belongsTo = updatedSections.filter((sec) => (sec.cardIds ?? []).includes(cardId))
       if (belongsTo.length > 1) {
+        const previousSectionIds = new Set(sections.filter((sec) => (sec.cardIds ?? []).includes(cardId)).map((sec) => sec.id))
         let bestSection: Section | null = null
         let bestOverlap = -1
         const cw = movedCard.width
@@ -868,7 +871,11 @@ export const useStore = create<AppState>((set, get) => ({
           const ox = Math.max(0, Math.min(movedCard.x + cw, sec.x + sec.width) - Math.max(movedCard.x, sec.x))
           const oy = Math.max(0, Math.min(movedCard.y + ch, sec.y + sec.height) - Math.max(movedCard.y, sec.y))
           const overlap = ox * oy
-          if (overlap > bestOverlap) { bestOverlap = overlap; bestSection = sec }
+          const preservesMembership = previousSectionIds.has(sec.id) && (!bestSection || !previousSectionIds.has(bestSection.id))
+          if (overlap > bestOverlap || (overlap === bestOverlap && preservesMembership)) {
+            bestOverlap = overlap
+            bestSection = sec
+          }
         }
         updatedSections = updatedSections.map((sec) => {
           if (sec === bestSection) return sec
@@ -1021,6 +1028,40 @@ export const useStore = create<AppState>((set, get) => ({
       ),
     }))
     get().persist()
+  },
+
+  finalizeCardMoves: (cardIds) => {
+    const { activeCanvasId, canvases } = get()
+    const canvas = canvases.find((item) => item.id === activeCanvasId)
+    if (!canvas) return
+    const requestedIds = new Set(cardIds)
+    const movedCards = new Map(canvas.cards.filter((card) => requestedIds.has(card.id)).map((card) => [card.id, card]))
+    if (movedCards.size === 0) return
+
+    // Remove departed batch members before testing adjacency, so moved cards
+    // cannot use one another to pull their former section across the canvas.
+    const sections = canvas.sections ?? []
+    const detached = sections.map((section) => {
+      const members = section.cardIds ?? []
+      const remaining = members.filter((id) => {
+        const card = movedCards.get(id)
+        return !card || (
+          card.x >= section.x && card.y >= section.y + SECTION_HEADER &&
+          card.x + card.width <= section.x + section.width &&
+          card.y + (card.height ?? 200) <= section.y + section.height
+        )
+      })
+      return remaining.length === members.length ? section : { ...section, cardIds: remaining }
+    })
+    const membershipChanged = detached.some((section, index) => section !== sections[index])
+    if (membershipChanged) {
+      set((s) => ({
+        canvases: s.canvases.map((item) => item.id === activeCanvasId ? { ...item, sections: detached } : item),
+      }))
+    }
+    for (const id of movedCards.keys()) get().finalizeCardMove(id)
+    // A batch dropped on empty space may only detach, with no finalizer changes.
+    if (membershipChanged) get().persist()
   },
 
   setEditingCard: (cardId) => {
@@ -1177,6 +1218,66 @@ export const useStore = create<AppState>((set, get) => ({
       ),
     }))
     get().persist()
+  },
+
+  createSectionFromCards: (cardIds) => {
+    const { activeCanvasId, canvases } = get()
+    const canvas = canvases.find((item) => item.id === activeCanvasId)
+    if (!canvas) return null
+    const requestedIds = new Set(cardIds)
+    const members = canvas.cards.filter((card) => requestedIds.has(card.id))
+    if (members.length === 0) return null
+
+    const memberIds = new Set(members.map((card) => card.id))
+    const sections = canvas.sections ?? []
+    const canvasCardIds = new Set(canvas.cards.map((card) => card.id))
+    const existingGroup = sections.find((section) => {
+      const validMemberIds = new Set((section.cardIds ?? []).filter((id) => canvasCardIds.has(id)))
+      return validMemberIds.size === memberIds.size && members.every((card) =>
+        validMemberIds.has(card.id) &&
+        card.x >= section.x && card.y >= section.y + SECTION_HEADER &&
+        card.x + card.width <= section.x + section.width &&
+        card.y + (card.height ?? estimateInstantCardHeight(card.title, card.content)) <= section.y + section.height,
+      )
+    })
+    if (existingGroup) return existingGroup.id
+
+    const minX = Math.min(...members.map((card) => card.x))
+    const minY = Math.min(...members.map((card) => card.y))
+    const maxRight = Math.max(...members.map((card) => card.x + card.width))
+    const maxBottom = Math.max(...members.map((card) =>
+      card.y + (card.height ?? estimateInstantCardHeight(card.title, card.content)),
+    ))
+    const section: Section = {
+      id: uuid(),
+      name: '分区',
+      x: minX - SECTION_PAD,
+      y: minY - SECTION_PAD - SECTION_HEADER,
+      width: Math.max(200, maxRight - minX + SECTION_PAD * 2),
+      height: Math.max(120, maxBottom - minY + SECTION_PAD * 2 + SECTION_HEADER),
+      color: SECTION_COLORS[sections.length % SECTION_COLORS.length],
+      cardIds: [...memberIds],
+    }
+
+    set((s) => ({
+      canvases: s.canvases.map((item) => item.id === activeCanvasId
+        ? {
+            ...item,
+            // Explicit grouping preserves the selected layout on subsequent height updates.
+            cards: item.cards.map((card) => memberIds.has(card.id) && card.instantOrder != null
+              ? { ...card, instantOrder: undefined }
+              : card),
+            sections: [
+              ...sections.map((existing) => (existing.cardIds ?? []).some((id) => memberIds.has(id))
+                ? { ...existing, cardIds: existing.cardIds!.filter((id) => !memberIds.has(id)) }
+                : existing),
+              section,
+            ],
+          }
+        : item),
+    }))
+    get().persist()
+    return section.id
   },
 
   updateSection: (sectionId, patch) => {
@@ -1611,6 +1712,7 @@ export const useStore = create<AppState>((set, get) => ({
     if (!activeCanvasId || fromCardId === toCardId) return
     const canvas = get().canvases.find((c) => c.id === activeCanvasId)
     if (!canvas) return
+    if (!canvas.cards.some((card) => card.id === fromCardId) || !canvas.cards.some((card) => card.id === toCardId)) return
     const exists = (canvas.connections ?? []).some((c) => c.fromCardId === fromCardId && c.toCardId === toCardId)
     if (exists) return
     const conn: Connection = { id: uuid(), fromCardId, toCardId }
