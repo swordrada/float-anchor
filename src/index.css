@@ -1221,6 +1221,7 @@ input {
 .canvas-viewport {
   flex: 1;
   overflow: hidden;
+  outline: none;
   position: relative;
   cursor: default;
   background-color: #f6f6f6;
