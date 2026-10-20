@@ -1,12 +1,13 @@
 import React, { useRef, useState, useCallback, useEffect } from 'react'
 import { useStore } from '../store'
 import type { Section } from '../types'
+import { getSectionAppearance } from '../sectionStyle'
 
 interface Props {
   section: Section
   scale: number
   selected?: boolean
-  onSelect?: (id: string) => void
+  onSelect?: (id: string, event: React.MouseEvent) => void
 }
 
 const SECTION_PAD = 24
@@ -49,7 +50,8 @@ const SectionBox = React.memo(function SectionBox({ section, scale, selected, on
     }
   }, [editName, section.id, section.name, updateSection])
 
-  const handleTitleClick = useCallback(() => {
+  const handleTitleClick = useCallback((event: React.MouseEvent) => {
+    if (event.ctrlKey || event.metaKey || event.shiftKey) return
     clickCount.current++
     if (clickCount.current === 1) {
       clickTimer.current = setTimeout(() => { clickCount.current = 0 }, 350)
@@ -62,10 +64,17 @@ const SectionBox = React.memo(function SectionBox({ section, scale, selected, on
 
   const handleDragStart = useCallback((e: React.MouseEvent) => {
     if (isEditing || e.button !== 0) return
+    if ((e.target as HTMLElement).closest('button, input')) return
+    if (e.ctrlKey || e.metaKey || e.shiftKey) {
+      e.stopPropagation()
+      e.preventDefault()
+      onSelect?.(section.id, e)
+      return
+    }
     if (selected) return
     e.stopPropagation()
     e.preventDefault()
-    onSelect?.(section.id) // 点分区标题栏即选中（随后仍可拖动）；选中后按 F 可执行分区最佳大小
+    onSelect?.(section.id, e) // 点分区标题栏即选中（随后仍可拖动）；选中后按 F 可执行分区最佳大小
     setIsDragging(true)
     const s = scale
     let prevX = e.clientX
@@ -186,8 +195,9 @@ const SectionBox = React.memo(function SectionBox({ section, scale, selected, on
     document.addEventListener('mouseup', onUp)
   }, [section.id, section.x, section.y, section.width, section.height, section.cardIds, scale, updateSection])
 
-  const borderColor = section.color + '80'
-  const bgColor = section.color + '18'
+  const appearance = getSectionAppearance(section)
+  const borderColor = appearance.borderColor + '80'
+  const bgColor = appearance.color + '18'
 
   return (
     <div
@@ -199,13 +209,14 @@ const SectionBox = React.memo(function SectionBox({ section, scale, selected, on
         width: section.width,
         height: section.height,
         borderColor,
+        borderStyle: appearance.borderStyle,
         backgroundColor: bgColor,
       }}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
     >
       <div className="section-header" onMouseDown={handleDragStart}>
-        <div className="section-color-dot" style={{ background: section.color }} />
+        <div className="section-color-dot" style={{ background: appearance.color }} />
         {isEditing ? (
           <input
             ref={inputRef}

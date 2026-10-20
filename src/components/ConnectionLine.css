@@ -1,0 +1,118 @@
+.connection-shape {
+  --connection-color: #a3adb8;
+  outline: none;
+  cursor: pointer;
+}
+
+[data-theme="dark"] .connection-shape { --connection-color: #778391; }
+.connection-shape.is-highlighted,
+.connection-shape.is-selected,
+.connection-shape:focus-visible { --connection-color: var(--accent); }
+
+.connection-stroke {
+  fill: none;
+  stroke: var(--connection-color);
+  stroke-linecap: round;
+  pointer-events: none;
+  transition: stroke 0.12s;
+}
+
+.connection-arrow { fill: var(--connection-color); }
+.connection-hit-area { fill: none; stroke: transparent; pointer-events: stroke; cursor: pointer; }
+.connection-selection-halo {
+  fill: none;
+  stroke: var(--accent);
+  opacity: 0.16;
+  pointer-events: none;
+}
+
+.connection-label-container { overflow: visible; pointer-events: none; }
+.connection-label-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 65;
+}
+.connection-label-layer.is-editing { z-index: 0; }
+.connection-label-layer.is-editing .connection-label { pointer-events: none; }
+.connection-label-layer.is-editing .connection-label-edit { pointer-events: none; }
+
+.connection-label-position {
+  width: 260px;
+  height: 30px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 5px;
+  transform-origin: 0 0;
+  pointer-events: none;
+}
+
+.connection-label {
+  max-width: 260px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.connection-label-container.is-selected .connection-label {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.connection-label-input {
+  box-sizing: border-box;
+  height: 30px;
+  min-width: 104px;
+  outline: none;
+  text-align: center;
+  user-select: text;
+  cursor: text;
+}
+
+.connection-label-input::placeholder { color: var(--text-muted); }
+.connection-label-input:focus { box-shadow: 0 0 0 2px var(--accent-light); }
+
+.connection-label.has-edit-button { max-width: 227px; }
+
+.connection-label-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 28px;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--accent);
+  background: var(--card-bg);
+  box-shadow: var(--shadow-sm);
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.connection-label-edit:hover {
+  background: var(--accent-light);
+  border-color: var(--accent);
+}
+
+.connection-label-edit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}

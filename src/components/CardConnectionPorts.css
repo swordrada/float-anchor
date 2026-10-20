@@ -1,0 +1,145 @@
+.card-connection-ports {
+  position: absolute;
+  pointer-events: none;
+  z-index: 70;
+}
+
+.card-connection-port {
+  position: absolute;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
+  pointer-events: auto;
+  cursor: inherit;
+  touch-action: none;
+  user-select: none;
+}
+
+.card-connection-port span {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  margin: -4px 0 0 -4px;
+  border: 1.5px solid var(--accent);
+  border-radius: 50%;
+  background: var(--card-bg);
+  pointer-events: none;
+  opacity: 0;
+  transition: transform 0.12s, opacity 0.12s, background 0.12s, box-shadow 0.12s;
+}
+
+/* Keep hit areas outside the card, with only 1px inside so the dot's center
+   remains draggable. Preserve the original 16px outward reach to avoid
+   extending farther toward adjacent cards. */
+.port-top {
+  height: 17px;
+  left: 50%;
+  top: 0;
+  transform: translate(-50%, -16px) scale(var(--port-inverse-scale, 1));
+  transform-origin: 50% 16px;
+}
+.port-top span { left: 50%; top: 16px; }
+
+.port-right {
+  width: 17px;
+  left: 100%;
+  top: 50%;
+  transform: translate(-1px, -50%) scale(var(--port-inverse-scale, 1));
+  transform-origin: 1px 50%;
+}
+.port-right span { left: 1px; top: 50%; }
+
+.port-bottom {
+  height: 17px;
+  left: 50%;
+  top: 100%;
+  transform: translate(-50%, -1px) scale(var(--port-inverse-scale, 1));
+  transform-origin: 50% 1px;
+}
+.port-bottom span { left: 50%; top: 1px; }
+
+.port-left {
+  width: 17px;
+  left: 0;
+  top: 50%;
+  transform: translate(-16px, -50%) scale(var(--port-inverse-scale, 1));
+  transform-origin: 16px 50%;
+}
+.port-left span { left: 16px; top: 50%; }
+
+.card-connection-port.is-hovered span,
+.card-connection-port.is-source span {
+  opacity: 1;
+}
+
+.card-connection-port.is-hovered span,
+.card-connection-port.is-source span {
+  background: var(--accent);
+  transform: scale(1.25);
+}
+
+.card-connection-port.is-target span {
+  opacity: 1;
+  background: var(--accent);
+  transform: scale(1.5);
+  box-shadow: 0 0 0 4px var(--accent-light);
+}
+
+.port-connection-picker {
+  position: fixed;
+  z-index: 1100;
+  width: 248px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card-bg);
+  box-shadow: var(--shadow-md);
+}
+
+.port-connection-picker p {
+  margin: 2px 4px 8px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.port-connection-picker-list { max-height: 220px; overflow: auto; }
+.port-connection-picker button {
+  display: block;
+  width: 100%;
+  padding: 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary);
+  text-align: left;
+  font-size: 12px;
+  cursor: grab;
+  touch-action: none;
+}
+.port-connection-picker button:hover { background: var(--accent-light); }
+
+.canvas-viewport.port-connecting,
+.canvas-viewport.port-connecting .note-card {
+  cursor: crosshair;
+  user-select: none;
+}
+
+.port-connection-hint {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  padding: 9px 14px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card-bg);
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-md);
+  font-size: 12px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 100;
+}

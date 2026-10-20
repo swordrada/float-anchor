@@ -1,8 +1,10 @@
 import { create } from 'zustand'
 import { shallow } from 'zustand/shallow'
 import { v4 as uuid } from 'uuid'
-import type { Canvas, Card, CanvasLabel, Section, Connection, CanvasViewport, AppSettings, WebDAVConfig, WebDAVSyncDecision, TextBox, SyncProvider, JournalData } from './types'
+import type { Canvas, Card, CanvasLabel, Section, SectionAppearance, SectionAppearancePatch, Connection, ConnectionSide, ConnectionAppearance, ConnectionAppearancePatch, CanvasViewport, AppSettings, WebDAVConfig, WebDAVSyncDecision, TextBox, SyncProvider, JournalData } from './types'
 import { getTodayDateKey } from './lib/dateUtils'
+import { getConnectionAppearance, sanitizeConnectionAppearancePatch } from './connectionStyle'
+import { getSectionAppearance, sanitizeSectionAppearancePatch } from './sectionStyle'
 
 export function getEffectiveProvider(settings: AppSettings): SyncProvider {
   return settings.syncProvider ?? (settings.webdav?.server ? 'webdav' : 'none')
@@ -272,7 +274,9 @@ interface AppState {
   moveLabel: (labelId: string, x: number, y: number) => void
 
   addSection: (x: number, y: number) => void
+  createSectionFromCards: (cardIds: string[]) => string | null
   updateSection: (sectionId: string, patch: Partial<Section>) => void
+  updateSections: (ids: string[], patch: SectionAppearancePatch) => void
   deleteSection: (sectionId: string) => void
   moveSection: (sectionId: string, dx: number, dy: number) => void
   autoFitSection: (sectionId: string) => void
@@ -282,8 +286,12 @@ interface AppState {
   nudgeUnits: (ids: { cardIds: string[]; labelIds: string[]; sectionIds: string[]; textIds: string[] }, dx: number, dy: number) => void
 
   finalizeCardMove: (cardId: string) => void
+  finalizeCardMoves: (cardIds: string[]) => void
 
-  addConnection: (fromCardId: string, toCardId: string) => void
+  addConnection: (fromCardId: string, toCardId: string, ports?: { fromSide: ConnectionSide; toSide: ConnectionSide }) => void
+  reconnectConnection: (connId: string, endpoint: 'from' | 'to', targetCardId: string, targetSide: ConnectionSide, fixedSide?: ConnectionSide) => void
+  updateConnections: (ids: string[], patch: ConnectionAppearancePatch) => void
+  deleteConnections: (ids: string[]) => void
   deleteConnection: (connId: string) => void
 
   saveViewport: (canvasId: string, viewport: CanvasViewport) => void
@@ -294,6 +302,7 @@ let syncTimer: ReturnType<typeof setTimeout> | undefined
 let lastRemoteUploadAt = 0
 
 const SECTION_COLORS = ['#9ca3af', '#60a5fa', '#34d399', '#fb923c', '#f472b6']
+const CONNECTION_SIDES = new Set<ConnectionSide>(['top', 'right', 'bottom', 'left'])
 const LOCAL_WEBDAV_SYNC_DELAY_MS = 2000
 const MIN_REMOTE_UPLOAD_INTERVAL_MS = 30000
 
@@ -860,6 +869,7 @@ export const useStore = create<AppState>((set, get) => ({
 
       const belongsTo = updatedSections.filter((sec) => (sec.cardIds ?? []).includes(cardId))
       if (belongsTo.length > 1) {
+        const previousSectionIds = new Set(sections.filter((sec) => (sec.cardIds ?? []).includes(cardId)).map((sec) => sec.id))
         let bestSection: Section | null = null
         let bestOverlap = -1
         const cw = movedCard.width
@@ -868,7 +878,11 @@ export const useStore = create<AppState>((set, get) => ({
           const ox = Math.max(0, Math.min(movedCard.x + cw, sec.x + sec.width) - Math.max(movedCard.x, sec.x))
           const oy = Math.max(0, Math.min(movedCard.y + ch, sec.y + sec.height) - Math.max(movedCard.y, sec.y))
           const overlap = ox * oy
-          if (overlap > bestOverlap) { bestOverlap = overlap; bestSection = sec }
+          const preservesMembership = previousSectionIds.has(sec.id) && (!bestSection || !previousSectionIds.has(bestSection.id))
+          if (overlap > bestOverlap || (overlap === bestOverlap && preservesMembership)) {
+            bestOverlap = overlap
+            bestSection = sec
+          }
         }
         updatedSections = updatedSections.map((sec) => {
           if (sec === bestSection) return sec
@@ -1021,6 +1035,40 @@ export const useStore = create<AppState>((set, get) => ({
       ),
     }))
     get().persist()
+  },
+
+  finalizeCardMoves: (cardIds) => {
+    const { activeCanvasId, canvases } = get()
+    const canvas = canvases.find((item) => item.id === activeCanvasId)
+    if (!canvas) return
+    const requestedIds = new Set(cardIds)
+    const movedCards = new Map(canvas.cards.filter((card) => requestedIds.has(card.id)).map((card) => [card.id, card]))
+    if (movedCards.size === 0) return
+
+    // Remove departed batch members before testing adjacency, so moved cards
+    // cannot use one another to pull their former section across the canvas.
+    const sections = canvas.sections ?? []
+    const detached = sections.map((section) => {
+      const members = section.cardIds ?? []
+      const remaining = members.filter((id) => {
+        const card = movedCards.get(id)
+        return !card || (
+          card.x >= section.x && card.y >= section.y + SECTION_HEADER &&
+          card.x + card.width <= section.x + section.width &&
+          card.y + (card.height ?? 200) <= section.y + section.height
+        )
+      })
+      return remaining.length === members.length ? section : { ...section, cardIds: remaining }
+    })
+    const membershipChanged = detached.some((section, index) => section !== sections[index])
+    if (membershipChanged) {
+      set((s) => ({
+        canvases: s.canvases.map((item) => item.id === activeCanvasId ? { ...item, sections: detached } : item),
+      }))
+    }
+    for (const id of movedCards.keys()) get().finalizeCardMove(id)
+    // A batch dropped on empty space may only detach, with no finalizer changes.
+    if (membershipChanged) get().persist()
   },
 
   setEditingCard: (cardId) => {
@@ -1179,6 +1227,66 @@ export const useStore = create<AppState>((set, get) => ({
     get().persist()
   },
 
+  createSectionFromCards: (cardIds) => {
+    const { activeCanvasId, canvases } = get()
+    const canvas = canvases.find((item) => item.id === activeCanvasId)
+    if (!canvas) return null
+    const requestedIds = new Set(cardIds)
+    const members = canvas.cards.filter((card) => requestedIds.has(card.id))
+    if (members.length === 0) return null
+
+    const memberIds = new Set(members.map((card) => card.id))
+    const sections = canvas.sections ?? []
+    const canvasCardIds = new Set(canvas.cards.map((card) => card.id))
+    const existingGroup = sections.find((section) => {
+      const validMemberIds = new Set((section.cardIds ?? []).filter((id) => canvasCardIds.has(id)))
+      return validMemberIds.size === memberIds.size && members.every((card) =>
+        validMemberIds.has(card.id) &&
+        card.x >= section.x && card.y >= section.y + SECTION_HEADER &&
+        card.x + card.width <= section.x + section.width &&
+        card.y + (card.height ?? estimateInstantCardHeight(card.title, card.content)) <= section.y + section.height,
+      )
+    })
+    if (existingGroup) return existingGroup.id
+
+    const minX = Math.min(...members.map((card) => card.x))
+    const minY = Math.min(...members.map((card) => card.y))
+    const maxRight = Math.max(...members.map((card) => card.x + card.width))
+    const maxBottom = Math.max(...members.map((card) =>
+      card.y + (card.height ?? estimateInstantCardHeight(card.title, card.content)),
+    ))
+    const section: Section = {
+      id: uuid(),
+      name: '分区',
+      x: minX - SECTION_PAD,
+      y: minY - SECTION_PAD - SECTION_HEADER,
+      width: Math.max(200, maxRight - minX + SECTION_PAD * 2),
+      height: Math.max(120, maxBottom - minY + SECTION_PAD * 2 + SECTION_HEADER),
+      color: SECTION_COLORS[sections.length % SECTION_COLORS.length],
+      cardIds: [...memberIds],
+    }
+
+    set((s) => ({
+      canvases: s.canvases.map((item) => item.id === activeCanvasId
+        ? {
+            ...item,
+            // Explicit grouping preserves the selected layout on subsequent height updates.
+            cards: item.cards.map((card) => memberIds.has(card.id) && card.instantOrder != null
+              ? { ...card, instantOrder: undefined }
+              : card),
+            sections: [
+              ...sections.map((existing) => (existing.cardIds ?? []).some((id) => memberIds.has(id))
+                ? { ...existing, cardIds: existing.cardIds!.filter((id) => !memberIds.has(id)) }
+                : existing),
+              section,
+            ],
+          }
+        : item),
+    }))
+    get().persist()
+    return section.id
+  },
+
   updateSection: (sectionId, patch) => {
     const { activeCanvasId } = get()
     if (!activeCanvasId) return
@@ -1188,6 +1296,36 @@ export const useStore = create<AppState>((set, get) => ({
           ? { ...c, sections: (c.sections ?? []).map((sec) => sec.id === sectionId ? { ...sec, ...patch } : sec) }
           : c,
       ),
+    }))
+    get().persist()
+  },
+
+  updateSections: (ids, patch) => {
+    const validPatch = sanitizeSectionAppearancePatch(patch)
+    const keys = Object.keys(validPatch) as (keyof SectionAppearance)[]
+    if (ids.length === 0 || keys.length === 0) return
+    const { activeCanvasId, canvases } = get()
+    const canvas = canvases.find((item) => item.id === activeCanvasId)
+    if (!canvas?.sections?.length) return
+    const selectedIds = new Set(ids)
+    let changed = false
+    const sections = canvas.sections.map((section) => {
+      if (!selectedIds.has(section.id)) return section
+      const appearance = getSectionAppearance(section)
+      if (!keys.some((key) => appearance[key] !== validPatch[key])) return section
+      changed = true
+      const next = { ...section, ...validPatch }
+      // Legacy sections derive their border from the fill. Freeze that old border
+      // before changing the fill so the two color controls remain independent.
+      if (validPatch.color && validPatch.color !== appearance.color && validPatch.borderColor === undefined &&
+        sanitizeSectionAppearancePatch(section).borderColor === undefined) {
+        next.borderColor = appearance.borderColor
+      }
+      return next
+    })
+    if (!changed) return
+    set((s) => ({
+      canvases: s.canvases.map((item) => item.id === activeCanvasId ? { ...item, sections } : item),
     }))
     get().persist()
   },
@@ -1606,14 +1744,24 @@ export const useStore = create<AppState>((set, get) => ({
     get().persist()
   },
 
-  addConnection: (fromCardId, toCardId) => {
+  addConnection: (fromCardId, toCardId, ports) => {
     const { activeCanvasId } = get()
     if (!activeCanvasId || fromCardId === toCardId) return
+    if (ports !== undefined && (!ports || !CONNECTION_SIDES.has(ports.fromSide) || !CONNECTION_SIDES.has(ports.toSide))) return
     const canvas = get().canvases.find((c) => c.id === activeCanvasId)
     if (!canvas) return
-    const exists = (canvas.connections ?? []).some((c) => c.fromCardId === fromCardId && c.toCardId === toCardId)
+    if (!canvas.cards.some((card) => card.id === fromCardId) || !canvas.cards.some((card) => card.id === toCardId)) return
+    const exists = (canvas.connections ?? []).some((connection) =>
+      connection.fromCardId === fromCardId && connection.toCardId === toCardId &&
+      (!ports || (connection.fromSide === ports.fromSide && connection.toSide === ports.toSide)),
+    )
     if (exists) return
-    const conn: Connection = { id: uuid(), fromCardId, toCardId }
+    const conn: Connection = {
+      id: uuid(),
+      fromCardId,
+      toCardId,
+      ...(ports ? { fromSide: ports.fromSide, toSide: ports.toSide } : {}),
+    }
     set((s) => ({
       canvases: s.canvases.map((c) =>
         c.id === activeCanvasId
@@ -1624,18 +1772,74 @@ export const useStore = create<AppState>((set, get) => ({
     get().persist()
   },
 
-  deleteConnection: (connId) => {
-    const { activeCanvasId } = get()
-    if (!activeCanvasId) return
+  reconnectConnection: (connId, endpoint, targetCardId, targetSide, fixedSide) => {
+    if ((endpoint !== 'from' && endpoint !== 'to') || !CONNECTION_SIDES.has(targetSide)) return
+    if (fixedSide !== undefined && !CONNECTION_SIDES.has(fixedSide)) return
+    const { activeCanvasId, canvases } = get()
+    const canvas = canvases.find((item) => item.id === activeCanvasId)
+    const connection = canvas?.connections?.find((item) => item.id === connId)
+    if (!canvas || !connection) return
+
+    const fixedCardId = endpoint === 'from' ? connection.toCardId : connection.fromCardId
+    if (targetCardId === fixedCardId || !canvas.cards.some((card) => card.id === targetCardId) ||
+        !canvas.cards.some((card) => card.id === fixedCardId)) return
+    const originalFixedSide = endpoint === 'from' ? connection.toSide : connection.fromSide
+    const resolvedFixedSide = originalFixedSide && CONNECTION_SIDES.has(originalFixedSide) ? originalFixedSide : fixedSide
+    if (!resolvedFixedSide) return
+
+    const next: Connection = endpoint === 'from'
+      ? { ...connection, fromCardId: targetCardId, fromSide: targetSide, toSide: resolvedFixedSide }
+      : { ...connection, toCardId: targetCardId, toSide: targetSide, fromSide: resolvedFixedSide }
+    const matchesPorts = (item: Connection) => item.fromCardId === next.fromCardId && item.toCardId === next.toCardId &&
+      item.fromSide === next.fromSide && item.toSide === next.toSide
+    if (matchesPorts(connection) || (canvas.connections ?? []).some((item) => item.id !== connId && matchesPorts(item))) return
+
     set((s) => ({
-      canvases: s.canvases.map((c) =>
-        c.id === activeCanvasId
-          ? { ...c, connections: (c.connections ?? []).filter((cn) => cn.id !== connId) }
-          : c,
-      ),
+      canvases: s.canvases.map((item) => item.id === activeCanvasId
+        ? { ...item, connections: (item.connections ?? []).map((existing) => existing.id === connId ? next : existing) }
+        : item),
     }))
     get().persist()
   },
+
+  updateConnections: (ids, patch) => {
+    const validPatch = sanitizeConnectionAppearancePatch(patch)
+    const keys = Object.keys(validPatch) as (keyof ConnectionAppearance)[]
+    if (ids.length === 0 || keys.length === 0) return
+    const { activeCanvasId, canvases } = get()
+    const canvas = canvases.find((item) => item.id === activeCanvasId)
+    if (!canvas?.connections?.length) return
+    const selectedIds = new Set(ids)
+    let changed = false
+    const connections = canvas.connections.map((connection) => {
+      if (!selectedIds.has(connection.id)) return connection
+      const appearance = getConnectionAppearance(connection)
+      if (!keys.some((key) => appearance[key] !== validPatch[key])) return connection
+      changed = true
+      return { ...connection, ...validPatch }
+    })
+    if (!changed) return
+    set((s) => ({
+      canvases: s.canvases.map((item) => item.id === activeCanvasId ? { ...item, connections } : item),
+    }))
+    get().persist()
+  },
+
+  deleteConnections: (ids) => {
+    if (ids.length === 0) return
+    const { activeCanvasId, canvases } = get()
+    const canvas = canvases.find((item) => item.id === activeCanvasId)
+    if (!canvas?.connections?.length) return
+    const selectedIds = new Set(ids)
+    const connections = canvas.connections.filter((connection) => !selectedIds.has(connection.id))
+    if (connections.length === canvas.connections.length) return
+    set((s) => ({
+      canvases: s.canvases.map((item) => item.id === activeCanvasId ? { ...item, connections } : item),
+    }))
+    get().persist()
+  },
+
+  deleteConnection: (connId) => get().deleteConnections([connId]),
 
   saveViewport: (canvasId, viewport) => {
     set((s) => ({
@@ -1664,14 +1868,28 @@ export function useActiveCanvasMeta() {
   )
 }
 
+type ActiveCanvasState = Pick<AppState, 'canvases' | 'activeCanvasId'>
+
+// Missing optional collections must retain identity across store updates and renders.
+const EMPTY_CARDS: Card[] = []
+const EMPTY_LABELS: CanvasLabel[] = []
+const EMPTY_TEXTS: TextBox[] = []
+const EMPTY_SECTIONS: Section[] = []
+const EMPTY_CONNECTIONS: Connection[] = []
+
+export const selectActiveCards = (state: ActiveCanvasState) =>
+  state.canvases.find((canvas) => canvas.id === state.activeCanvasId)?.cards ?? EMPTY_CARDS
+export const selectActiveLabels = (state: ActiveCanvasState) =>
+  state.canvases.find((canvas) => canvas.id === state.activeCanvasId)?.labels ?? EMPTY_LABELS
+export const selectActiveTexts = (state: ActiveCanvasState) =>
+  state.canvases.find((canvas) => canvas.id === state.activeCanvasId)?.texts ?? EMPTY_TEXTS
+export const selectActiveSections = (state: ActiveCanvasState) =>
+  state.canvases.find((canvas) => canvas.id === state.activeCanvasId)?.sections ?? EMPTY_SECTIONS
+export const selectActiveConnections = (state: ActiveCanvasState) =>
+  state.canvases.find((canvas) => canvas.id === state.activeCanvasId)?.connections ?? EMPTY_CONNECTIONS
+
 export function useActiveCards() {
-  return useStore(
-    (s) => {
-      const c = s.canvases.find((c) => c.id === s.activeCanvasId)
-      return c?.cards ?? []
-    },
-    (a, b) => a === b,
-  )
+  return useStore(selectActiveCards)
 }
 
 export function useCardById(cardId: string) {
@@ -1701,43 +1919,19 @@ export function useCardActions() {
 }
 
 export function useActiveLabels() {
-  return useStore(
-    (s) => {
-      const c = s.canvases.find((c) => c.id === s.activeCanvasId)
-      return c?.labels ?? []
-    },
-    (a, b) => a === b,
-  )
+  return useStore(selectActiveLabels)
 }
 
 export function useActiveTexts() {
-  return useStore(
-    (s) => {
-      const c = s.canvases.find((c) => c.id === s.activeCanvasId)
-      return c?.texts ?? []
-    },
-    (a, b) => a === b,
-  )
+  return useStore(selectActiveTexts)
 }
 
 export function useActiveSections() {
-  return useStore(
-    (s) => {
-      const c = s.canvases.find((c) => c.id === s.activeCanvasId)
-      return c?.sections ?? []
-    },
-    (a, b) => a === b,
-  )
+  return useStore(selectActiveSections)
 }
 
 export function useActiveConnections() {
-  return useStore(
-    (s) => {
-      const c = s.canvases.find((c) => c.id === s.activeCanvasId)
-      return c?.connections ?? []
-    },
-    (a, b) => a === b,
-  )
+  return useStore(selectActiveConnections)
 }
 
 export function useHighlightCard() {

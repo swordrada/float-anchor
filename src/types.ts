@@ -33,7 +33,15 @@ export interface CanvasLabel {
   sourceId?: string
 }
 
-export interface Section {
+export interface SectionAppearance {
+  color: string
+  borderStyle: 'solid' | 'dashed'
+  borderColor: string
+}
+
+export type SectionAppearancePatch = Partial<SectionAppearance>
+
+export interface Section extends SectionAppearancePatch {
   id: string
   name: string
   x: number
@@ -55,10 +63,23 @@ export interface TextBox {
   sourceId?: string
 }
 
-export interface Connection {
+export type ConnectionSide = 'top' | 'right' | 'bottom' | 'left'
+
+export interface ConnectionAppearance {
+  lineStyle: 'solid' | 'dashed'
+  arrow: 'none' | 'end' | 'start' | 'both'
+  strokeWidth: number
+  label: string
+}
+
+export type ConnectionAppearancePatch = Partial<ConnectionAppearance>
+
+export interface Connection extends ConnectionAppearancePatch {
   id: string
   fromCardId: string
   toCardId: string
+  fromSide?: ConnectionSide
+  toSide?: ConnectionSide
 }
 
 export interface CanvasViewport {

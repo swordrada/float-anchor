@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from 'react'
-import { useStore, useActiveCanvasMeta, useActiveCards, useActiveConnections, useActiveLabels, useActiveSections, useHighlightCard, useSettings, useActiveTexts } from '../store'
+import { useStore, useActiveCanvasMeta, useActiveCards, useActiveConnections, useActiveLabels, useActiveSections, useHighlightCard, useActiveTexts } from '../store'
 import NoteCard from './NoteCard'
 import CanvasLabelComponent from './CanvasLabel'
 import TextBoxComponent from './TextBox'
@@ -7,11 +7,20 @@ import SectionBox from './SectionBox'
 import ContextMenu from './ContextMenu'
 import MoveToModal from './MoveToModal'
 import ConfirmModal from './ConfirmModal'
+import CanvasSelectionToolbar from './CanvasSelectionToolbar'
+import SectionSelectionToolbar from './SectionSelectionToolbar'
+import ConnectionSelectionToolbar from './ConnectionSelectionToolbar'
+import ConnectionLine from './ConnectionLine'
+import CardConnectionPorts from './CardConnectionPorts'
+import { useCardPortConnection } from './useCardPortConnection'
 import type { Card, Connection, Section, CanvasLabel, TextBox } from '../types'
 import type { MenuItem } from './ContextMenu'
 import { scKey } from '../shortcuts'
 import { getWheelZoomFactor } from '../zoom'
 import { expandCardIdsForSelectedSections } from '../canvasSelection'
+import { getCardConnectionGeometry, getCardConnectionPreview } from '../cardConnections'
+import { getConnectionAppearance } from '../connectionStyle'
+import type { CardConnectionGeometry } from '../cardConnections'
 import { getSearchTargetBounds, getSearchTargetViewport } from '../lib/searchNavigation'
 import type { SearchNavigationTarget } from '../lib/searchNavigation'
 
@@ -174,15 +183,6 @@ function findDensestCenter(cards: Card[]): { cx: number; cy: number; clusterCard
   return { cx, cy, clusterCards: cluster.map((c) => c.card) }
 }
 
-function getConnectionPath(from: Card, to: Card): string {
-  const fx = from.x + from.width
-  const fy = from.y + (from.height ?? 200) / 2
-  const tx = to.x
-  const ty = to.y + (to.height ?? 200) / 2
-  const cpx = Math.abs(tx - fx) * 0.4
-  return `M ${fx} ${fy} C ${fx + cpx} ${fy}, ${tx - cpx} ${ty}, ${tx} ${ty}`
-}
-
 export default function CanvasView() {
   const addCard = useStore((s) => s.addCard)
   const deleteCard = useStore((s) => s.deleteCard)
@@ -190,6 +190,8 @@ export default function CanvasView() {
   const setEditingCard = useStore((s) => s.setEditingCard)
   const addConnection = useStore((s) => s.addConnection)
   const deleteConnection = useStore((s) => s.deleteConnection)
+  const updateConnections = useStore((s) => s.updateConnections)
+  const deleteConnections = useStore((s) => s.deleteConnections)
   const addLabel = useStore((s) => s.addLabel)
   const addText = useStore((s) => s.addText)
   const arrangeUnits = useStore((s) => s.arrangeUnits)
@@ -197,6 +199,10 @@ export default function CanvasView() {
   const nudgeUnits = useStore((s) => s.nudgeUnits)
   const setEditingText = useStore((s) => s.setEditingText)
   const addSection = useStore((s) => s.addSection)
+  const updateSections = useStore((s) => s.updateSections)
+  const createSectionFromCards = useStore((s) => s.createSectionFromCards)
+  const editingCardId = useStore((s) => s.editingCardId)
+  const editingTextId = useStore((s) => s.editingTextId)
   const compactSection = useStore((s) => s.compactSection)
   const highlightCardId = useHighlightCard()
   const setHighlightCard = useStore((s) => s.setHighlightCard)
@@ -207,12 +213,11 @@ export default function CanvasView() {
   const labels = useActiveLabels()
   const texts = useActiveTexts()
   const sections = useActiveSections()
-  const settings = useSettings()
-  const arrowColor = settings.theme === 'dark' ? '#888' : '#bbb'
 
   const viewportRef = useRef<HTMLDivElement>(null)
   const innerRef = useRef<HTMLDivElement>(null)
   const zoomRef = useRef<HTMLSpanElement>(null)
+  const [connectionLabelLayer, setConnectionLabelLayer] = useState<SVGSVGElement | null>(null)
 
   const pan = useRef({ x: 0, y: 0 })
   const scaleVal = useRef(1)
@@ -237,11 +242,57 @@ export default function CanvasView() {
   const [hoveredConn, setHoveredConn] = useState<string | null>(null)
 
   const [selection, setSelection] = useState<SelectionSet>(emptySelection)
+  const [selectedConnectionIds, setSelectedConnectionIds] = useState<Set<string>>(() => new Set())
+  const clearConnectionSelection = useCallback(() => {
+    setSelectedConnectionIds((current) => current.size ? new Set() : current)
+  }, [])
   const [lassoRect, setLassoRect] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
   const lassoStart = useRef<{ cx: number; cy: number } | null>(null)
   const isLassoing = useRef(false)
+  const lassoBase = useRef<SelectionSet>(emptySelection())
   const [isMultiDragging, setIsMultiDragging] = useState(false)
   const multiDragStart = useRef<{ cx: number; cy: number } | null>(null)
+  const suppressCardClick = useRef(false)
+
+  // Selection belongs to a canvas, and must not retain deleted or moved entities.
+  useEffect(() => {
+    setSelection(emptySelection())
+    clearConnectionSelection()
+    setConnectingFrom(null)
+    setCtxMenu(null)
+    setIsMultiDragging(false)
+  }, [meta?.id, clearConnectionSelection])
+
+  useEffect(() => {
+    if (!selectionEmpty(selection) || editingCardId || editingTextId) clearConnectionSelection()
+  }, [selection, editingCardId, editingTextId, clearConnectionSelection])
+
+  useEffect(() => {
+    if (selectedConnectionIds.size === 0) return
+    const available = new Set(connections.map((connection) => connection.id))
+    const next = new Set([...selectedConnectionIds].filter((id) => available.has(id)))
+    if (next.size !== selectedConnectionIds.size) setSelectedConnectionIds(next)
+  }, [connections, selectedConnectionIds])
+
+  useEffect(() => {
+    window.addEventListener('fa-before-search', clearConnectionSelection)
+    return () => window.removeEventListener('fa-before-search', clearConnectionSelection)
+  }, [clearConnectionSelection])
+
+  useEffect(() => {
+    const next = {
+      cardIds: new Set([...selection.cardIds].filter((id) => cards.some((card) => card.id === id))),
+      labelIds: new Set([...selection.labelIds].filter((id) => labels.some((label) => label.id === id))),
+      sectionIds: new Set([...selection.sectionIds].filter((id) => sections.some((section) => section.id === id))),
+      textIds: new Set([...selection.textIds].filter((id) => texts.some((text) => text.id === id))),
+    }
+    // Do not enqueue no-op updates: missing entity arrays can change identity
+    // during deferred search renders and otherwise keep restarting that work.
+    if (Object.keys(next).some((key) => next[key as keyof SelectionSet].size !== selection[key as keyof SelectionSet].size)) {
+      setSelection(next)
+    }
+    if (connectingFrom && !cards.some((card) => card.id === connectingFrom)) setConnectingFrom(null)
+  }, [cards, labels, sections, texts, connectingFrom, selection])
 
   useEffect(() => {
     if (!highlightCardId) return
@@ -355,6 +406,7 @@ export default function CanvasView() {
 
     const onWheel = (e: WheelEvent) => {
       const t = e.target as HTMLElement
+      if (t.closest('.connection-selection-toolbar, .section-selection-toolbar')) return
       if (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT') return
       if (!e.ctrlKey && !e.metaKey && t.closest('.rich-editor-wrap')) return
       e.preventDefault()
@@ -404,6 +456,38 @@ export default function CanvasView() {
       y: (clientY - rect.top - pan.current.y) / scaleVal.current,
     }
   }, [])
+
+  const portConnection = useCardPortConnection(meta?.id, cards, connections, toCanvasCoords)
+
+  const handleConnectionSelect = useCallback((event: React.MouseEvent<SVGGElement> | React.KeyboardEvent<SVGGElement>, connectionId: string) => {
+    if (portConnection.active.current || portConnection.picker || isPanDragging || isMultiDragging || isLassoing.current) return
+    const state = useStore.getState()
+    if (state.editingCardId || state.editingTextId || confirmDelete ||
+        document.querySelector('[role="dialog"][aria-modal="true"]')) return
+    if ('button' in event && event.button !== 0) return
+    setSelection((current) => selectionEmpty(current) ? current : emptySelection())
+    setConnectingFrom(null)
+    setCtxMenu(null)
+    suppressCardClick.current = false
+    setSelectedConnectionIds((current) => {
+      if (!event.ctrlKey && !event.metaKey && !event.shiftKey) {
+        return current.size === 1 && current.has(connectionId) ? current : new Set([connectionId])
+      }
+      const next = new Set(current)
+      if (next.has(connectionId)) next.delete(connectionId)
+      else next.add(connectionId)
+      return next
+    })
+    // Clicking the line leaves any toolbar text field before canvas shortcuts run.
+    event.currentTarget.focus({ preventScroll: true })
+  }, [portConnection.picker, isPanDragging, isMultiDragging, confirmDelete])
+
+  const deleteSelectedConnections = useCallback(() => {
+    if (selectedConnectionIds.size === 0) return
+    deleteConnections([...selectedConnectionIds])
+    clearConnectionSelection()
+    setHoveredConn(null)
+  }, [selectedConnectionIds, deleteConnections, clearConnectionSelection])
 
   const viewportCenterCanvasCoords = useCallback(() => {
     const rect = viewportRef.current?.getBoundingClientRect()
@@ -467,7 +551,13 @@ export default function CanvasView() {
         const curSections = canvas?.sections ?? []
         const curTexts = canvas?.texts ?? []
         const sel = computeSelection(lassoRectRef.current, curCards, curLabels, curSections, curTexts)
-        setSelection(sel)
+        const base = lassoBase.current
+        setSelection({
+          cardIds: new Set([...base.cardIds, ...sel.cardIds]),
+          labelIds: new Set([...base.labelIds, ...sel.labelIds]),
+          sectionIds: new Set([...base.sectionIds, ...sel.sectionIds]),
+          textIds: new Set([...base.textIds, ...sel.textIds]),
+        })
       }
       lassoStart.current = null
       isLassoing.current = false
@@ -480,7 +570,65 @@ export default function CanvasView() {
     document.addEventListener('mouseup', onUp)
   }, [toCanvasCoords])
 
+  const handleCanvasMouseDownCapture = useCallback((e: React.MouseEvent) => {
+    if (e.button !== 0) return
+    if (portConnection.active.current) { e.preventDefault(); return }
+    suppressCardClick.current = false
+    const target = e.target as HTMLElement
+    // Selection handlers prevent the browser's default focus transfer. Restore
+    // canvas focus before children can stop bubbling, but leave editors and
+    // controls (including line selection) in charge of their own focus.
+    if (!target.closest('a, button, input, textarea, select, [contenteditable], .note-card.editing, .canvas-selection-toolbar, .connection-selection-toolbar, .section-selection-toolbar, [data-connection-id], .card-connection-port')) {
+      viewportRef.current?.focus({ preventScroll: true })
+    }
+    // These children stop bubbling, so clear line selection during capture.
+    if (target.closest('.note-card, .canvas-label, .canvas-text, .section-box')) clearConnectionSelection()
+    const cardElement = target.closest<HTMLElement>('.note-card')
+    const cardId = cardElement?.dataset.cardId
+    if (!cardId) return
+
+    if (connectingFrom) {
+      e.preventDefault()
+      suppressCardClick.current = true
+      if (cardId !== connectingFrom) {
+        addConnection(connectingFrom, cardId)
+        setConnectingFrom(null)
+      }
+      return
+    }
+    if (target.closest('a, button, input, textarea, select, [contenteditable], .card-resize-handle, .note-card.editing')) return
+
+    // preventDefault coordinates with NoteCard's handle without blocking the
+    // document listener that saves and closes another card's active editor.
+    e.preventDefault()
+    setCtxMenu(null)
+    if (e.ctrlKey || e.metaKey || e.shiftKey) {
+      const nextIds = new Set(selection.cardIds)
+      const nextSectionIds = new Set(selection.sectionIds)
+      for (const section of sections) {
+        if (nextSectionIds.has(section.id) && section.cardIds?.includes(cardId)) {
+          nextSectionIds.delete(section.id)
+          for (const memberId of section.cardIds) nextIds.add(memberId)
+        }
+      }
+      if (nextIds.has(cardId)) nextIds.delete(cardId)
+      else nextIds.add(cardId)
+      setSelection({ ...selection, cardIds: nextIds, sectionIds: nextSectionIds })
+      return
+    }
+    if (!selection.cardIds.has(cardId)) {
+      setSelection({ ...emptySelection(), cardIds: new Set([cardId]) })
+    }
+    multiDragStart.current = { cx: e.clientX, cy: e.clientY }
+    setIsMultiDragging(true)
+  }, [selection, sections, connectingFrom, addConnection, clearConnectionSelection])
+
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if (portConnection.active.current) { e.preventDefault(); return }
+    if (e.defaultPrevented) return
+    const target = e.target as HTMLElement
+    if (target.closest('a, button, input, textarea, select, [contenteditable], .note-card.editing, .card-resize-handle, .section-resize-handle, .text-resize-handle, .canvas-selection-toolbar, .connection-selection-toolbar, .section-selection-toolbar')) return
+    if (e.button === 0 && target.closest('[data-connection-id]')) return
     if (e.button === 1) {
       e.preventDefault()
       setIsPanDragging(true)
@@ -506,11 +654,9 @@ export default function CanvasView() {
       return
     }
     if (e.button === 0) {
-      const target = e.target as HTMLElement
-
+      clearConnectionSelection()
       if (!selectionEmpty(selection)) {
-        const coords = toCanvasCoords(e.clientX, e.clientY)
-        const hitSelected = pointInSelection(coords, selection, cards, labels, sections, texts)
+        const hitSelected = target.closest('.canvas-label.multi-selected, .canvas-text.multi-selected, .section-box.multi-selected .section-header')
 
         if (hitSelected) {
           e.preventDefault()
@@ -520,19 +666,20 @@ export default function CanvasView() {
           return
         }
 
-        setSelection(emptySelection())
+        if (!e.ctrlKey && !e.metaKey && !e.shiftKey) setSelection(emptySelection())
       }
 
       if (target.closest('.note-card') || target.closest('.canvas-label') || target.closest('.canvas-text') || target.closest('.section-header') ||
           target.closest('.section-resize-handle') || target.closest('.card-resize-handle') ||
-          target.closest('.conn-delete-btn') || target.closest('.canvas-toolbar')) return
+          target.closest('.canvas-toolbar')) return
 
       const canvasCoords = toCanvasCoords(e.clientX, e.clientY)
+      lassoBase.current = e.ctrlKey || e.metaKey || e.shiftKey ? selection : emptySelection()
       lassoStart.current = { cx: canvasCoords.x, cy: canvasCoords.y }
       isLassoing.current = false
       startLassoListeners()
     }
-  }, [connectingFrom, addConnection, selection, cards, labels, sections, texts, toCanvasCoords, startLassoListeners])
+  }, [connectingFrom, addConnection, selection, cards, labels, sections, texts, toCanvasCoords, startLassoListeners, clearConnectionSelection])
 
   useEffect(() => {
     if (!isPanDragging) return
@@ -565,6 +712,8 @@ export default function CanvasView() {
     const startX = multiDragStart.current!.cx
     const startY = multiDragStart.current!.cy
     let dragRaf = 0
+    let didDrag = false
+    let pendingMove: (() => void) | null = null
 
     const SNAP_DIST = 6
     const GAP = 12
@@ -595,15 +744,28 @@ export default function CanvasView() {
       }
     }
 
+    const singleCardId = selection.cardIds.size === 1 && selection.labelIds.size === 0 &&
+      selection.sectionIds.size === 0 && selection.textIds.size === 0
+      ? [...selection.cardIds][0] : null
+
     const onMove = (e: MouseEvent) => {
+      if (!didDrag && Math.hypot(e.clientX - startX, e.clientY - startY) < 4) return
+      didDrag = true
       cancelAnimationFrame(dragRaf)
       const totalDx = (e.clientX - startX) / s
       const totalDy = (e.clientY - startY) / s
 
-      dragRaf = requestAnimationFrame(() => {
+      pendingMove = () => {
         const store = useStore.getState()
+        if (store.activeCanvasId !== canvas0?.id) return
         const canvas = store.canvases.find((c) => c.id === store.activeCanvasId)
         if (!canvas) return
+
+        if (singleCardId) {
+          const original = origCards.get(singleCardId)
+          if (original) store.moveCard(singleCardId, original.x + totalDx, original.y + totalDy)
+          return
+        }
 
         const selectedCardData = canvas.cards.filter((c) => dragCardIds.has(c.id))
         if (selectedCardData.length === 0) {
@@ -674,7 +836,7 @@ export default function CanvasView() {
 
         const updatedCards = canvas.cards.map((c) => {
           const orig = origCards.get(c.id)
-          return orig ? { ...c, x: orig.x + finalDx, y: orig.y + finalDy } : c
+          return orig ? { ...c, x: orig.x + finalDx, y: orig.y + finalDy, instantOrder: undefined } : c
         })
         const updatedLabels = (canvas.labels ?? []).map((l) => {
           const orig = origLabels.get(l.id)
@@ -696,19 +858,32 @@ export default function CanvasView() {
               : c,
           ),
         })
+      }
+      dragRaf = requestAnimationFrame(() => {
+        pendingMove?.()
+        pendingMove = null
       })
     }
     const onUp = () => {
       cancelAnimationFrame(dragRaf)
+      pendingMove?.()
+      pendingMove = null
       setIsMultiDragging(false)
       multiDragStart.current = null
-      useStore.getState().persist()
+      if (didDrag) {
+        const membersOfMovingSections = expandCardIdsForSelectedSections([], selection.sectionIds, canvas0?.sections ?? [])
+        useStore.getState().finalizeCardMoves(
+          [...selection.cardIds].filter((id) => !membersOfMovingSections.has(id)),
+        )
+        useStore.getState().persist()
+      }
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
     }
     document.addEventListener('mousemove', onMove)
     document.addEventListener('mouseup', onUp)
     return () => {
+      cancelAnimationFrame(dragRaf)
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)
     }
@@ -716,17 +891,26 @@ export default function CanvasView() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (portConnection.active.current || portConnection.picker) return
       // 编辑输入上下文 / 确认弹窗打开 → 不处理全局快捷键
       const ae = document.activeElement as HTMLElement | null
-      const typing = !!ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable)
+      const typing = !!ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.tagName === 'SELECT' || ae.isContentEditable)
       const st = useStore.getState()
       const modalOpen = !!document.querySelector('[role="dialog"][aria-modal="true"]')
       if (e.defaultPrevented || modalOpen || typing || st.editingCardId || st.editingTextId || confirmDelete) return
+      if (ae?.closest('.canvas-selection-toolbar') &&
+          (e.key === 'Enter' || e.key === ' ' || e.key.startsWith('Arrow'))) return
+      if (ae?.closest('.connection-selection-toolbar, .section-selection-toolbar') &&
+          e.key !== 'Escape' && e.key !== 'Delete' && e.key !== 'Backspace') return
 
       // 连线 / Esc（保留并优先）
       if (e.key === 'Escape') {
         if (connectingFrom) setConnectingFrom(null)
         if (!selectionEmpty(selection)) setSelection(emptySelection())
+        if (selectedConnectionIds.size > 0) {
+          e.preventDefault()
+          clearConnectionSelection()
+        }
         return
       }
       if (e.key === 'Backspace' && connectingFrom) {
@@ -750,6 +934,7 @@ export default function CanvasView() {
 
       if (mod && !e.shiftKey && k === 'a') {
         e.preventDefault()
+        clearConnectionSelection()
         setSelection({
           cardIds: new Set((canvas.cards ?? []).map((c) => c.id)),
           labelIds: new Set((canvas.labels ?? []).map((l) => l.id)),
@@ -763,9 +948,9 @@ export default function CanvasView() {
       if (mod && k === '0') { e.preventDefault(); resetZoomAroundCenter(); return }
       if (mod) return
 
-      if (k === 'c') { const p = viewportCenterCanvasCoords(); addCard(p.x - 186, p.y - 40); return }
-      if (k === 't') { const p = viewportCenterCanvasCoords(); addText(p.x - 150, p.y - 20); return }
-      if (k === 'r') { const p = viewportCenterCanvasCoords(); addSection(p.x - 300, p.y - 200); return }
+      if (k === 'c') { clearConnectionSelection(); const p = viewportCenterCanvasCoords(); addCard(p.x - 186, p.y - 40); return }
+      if (k === 't') { clearConnectionSelection(); const p = viewportCenterCanvasCoords(); addText(p.x - 150, p.y - 20); return }
+      if (k === 'r') { clearConnectionSelection(); const p = viewportCenterCanvasCoords(); addSection(p.x - 300, p.y - 200); return }
       if (k === 'l') { e.preventDefault(); arrangeUnits(selIds()); return }
       if (k === 'f') {
         if (selection.sectionIds.size === 0) return
@@ -782,6 +967,12 @@ export default function CanvasView() {
           if (cid) setEditingCard(cid)
           else if (tid) setEditingText(tid)
         }
+        return
+      }
+
+      if ((e.key === 'Delete' || e.key === 'Backspace') && selectedConnectionIds.size > 0) {
+        e.preventDefault()
+        deleteSelectedConnections()
         return
       }
 
@@ -803,7 +994,7 @@ export default function CanvasView() {
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [connectingFrom, connections, deleteConnection, selection, confirmDelete, arrangeUnits, compactSection, addCard, addText, addSection, setEditingCard, setEditingText, nudgeUnits, zoomAroundCenter, resetZoomAroundCenter, viewportCenterCanvasCoords])
+  }, [connectingFrom, connections, deleteConnection, selection, selectedConnectionIds, clearConnectionSelection, deleteSelectedConnections, confirmDelete, arrangeUnits, compactSection, addCard, addText, addSection, setEditingCard, setEditingText, nudgeUnits, zoomAroundCenter, resetZoomAroundCenter, viewportCenterCanvasCoords, portConnection.picker])
 
   useEffect(() => {
     if (!connectingFrom) {
@@ -821,6 +1012,12 @@ export default function CanvasView() {
   const handleContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
+    if ((e.target as Element).closest('.connection-selection-toolbar, .section-selection-toolbar, [data-connection-id]')) return
+
+    if (portConnection.active.current) {
+      portConnection.cancel()
+      return
+    }
 
     if (rightDragged.current) return
 
@@ -981,7 +1178,8 @@ export default function CanvasView() {
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       const target = e.target as HTMLElement
-      if (target.closest('.note-card')) return
+      if (portConnection.active.current || target.closest('.note-card, .canvas-selection-toolbar, .connection-selection-toolbar, .section-selection-toolbar, [data-connection-id], .card-connection-port, a, button, input, textarea, select, [contenteditable]')) return
+      clearConnectionSelection()
       if (!selectionEmpty(selection)) {
         setSelection(emptySelection())
         return
@@ -989,7 +1187,7 @@ export default function CanvasView() {
       const coords = toCanvasCoords(e.clientX, e.clientY)
       addCard(coords.x, coords.y)
     },
-    [addCard, toCanvasCoords, selection],
+    [addCard, toCanvasCoords, selection, clearConnectionSelection],
   )
 
   const handleAddCard = () => {
@@ -1066,6 +1264,7 @@ export default function CanvasView() {
       else if (target.type === 'text') nextSelection.textIds.add(target.id)
       else if (target.type === 'section') nextSelection.sectionIds.add(target.id)
       setSelection(nextSelection)
+      clearConnectionSelection()
       setHighlightCard(target.type === 'card' ? target.id : null)
       setConnectingFrom(null)
       setCtxMenu(null)
@@ -1107,7 +1306,7 @@ export default function CanvasView() {
     }
     window.addEventListener('fa-focus-search-result', handler)
     return () => window.removeEventListener('fa-focus-search-result', handler)
-  }, [meta?.id, cards, labels, texts, sections, flyTo, setHighlightCard])
+  }, [meta?.id, cards, labels, texts, sections, flyTo, setHighlightCard, clearConnectionSelection])
 
   const handleLocate = useCallback(() => {
     const vp = viewportRef.current
@@ -1176,10 +1375,48 @@ export default function CanvasView() {
         const from = cardMap.get(conn.fromCardId)
         const to = cardMap.get(conn.toCardId)
         if (!from || !to) return null
-        return { ...conn, path: getConnectionPath(from, to), from, to }
+        return { ...conn, ...getCardConnectionGeometry(from, to, conn) }
       })
-      .filter(Boolean) as (Connection & { path: string; from: Card; to: Card })[]
+      .filter(Boolean) as (Connection & CardConnectionGeometry)[]
   }, [cards, connections])
+
+  const portPreview = useMemo(() => {
+    const draft = portConnection.draft
+    if (!draft || draft.canvasId !== meta?.id) return null
+    const fixed = cards.find((card) => card.id === draft.fixed.cardId)
+    if (!fixed) return null
+    const target = draft.target && cards.find((card) => card.id === draft.target?.cardId)
+    if (draft.reconnect?.endpoint === 'from') {
+      return getCardConnectionGeometry(target ?? { ...draft.pointer, width: 0, height: 0 }, fixed, {
+        fromSide: draft.target?.side ?? draft.source.side,
+        toSide: draft.fixed.side,
+      })
+    }
+    return target && draft.target
+      ? getCardConnectionGeometry(fixed, target, { fromSide: draft.fixed.side, toSide: draft.target.side })
+      : getCardConnectionPreview(fixed, draft.pointer, draft.fixed.side)
+  }, [portConnection.draft, meta?.id, cards])
+
+  const selectedCardIds = [...selection.cardIds].filter((id) => cards.some((card) => card.id === id))
+  const selectedSections = sections.filter((section) => selection.sectionIds.has(section.id))
+  const previewAppearance = getConnectionAppearance(portConnection.draft?.reconnect?.connection ?? {})
+  const selectedConnections = connections.filter((connection) => selectedConnectionIds.has(connection.id))
+  const cardTitles = new Map(cards.map((card) => [card.id, card.title || '无标题卡片']))
+  const pairConnected = selectedCardIds.length === 2 && connections.some((connection) =>
+    (connection.fromCardId === selectedCardIds[0] && connection.toCardId === selectedCardIds[1]) ||
+    (connection.fromCardId === selectedCardIds[1] && connection.toCardId === selectedCardIds[0]),
+  )
+  const groupSelectedCards = () => {
+    if (selectedCardIds.length < 2) return
+    const sectionId = createSectionFromCards(selectedCardIds)
+    if (sectionId) setSelection({ ...emptySelection(), sectionIds: new Set([sectionId]) })
+    setCtxMenu(null)
+  }
+  const connectSelectedCards = () => {
+    if (selectedCardIds.length === 1) setConnectingFrom(selectedCardIds[0])
+    else if (selectedCardIds.length === 2 && !pairConnected) addConnection(selectedCardIds[0], selectedCardIds[1])
+    setCtxMenu(null)
+  }
 
   if (!meta) {
     return (
@@ -1207,7 +1444,16 @@ export default function CanvasView() {
 
       <div
         ref={viewportRef}
-        className={`canvas-viewport ${isPanDragging ? 'panning' : ''} ${connectingFrom ? 'connecting' : ''}`}
+        tabIndex={-1}
+        className={`canvas-viewport ${isPanDragging ? 'panning' : ''} ${connectingFrom ? 'connecting' : ''} ${portConnection.draft ? 'port-connecting' : ''}`}
+        onMouseDownCapture={handleCanvasMouseDownCapture}
+        onClickCapture={(event) => {
+          if (suppressCardClick.current && (event.target as HTMLElement).closest('.note-card')) {
+            event.preventDefault()
+            event.stopPropagation()
+            suppressCardClick.current = false
+          }
+        }}
         onMouseDown={handleMouseDown}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
@@ -1218,7 +1464,18 @@ export default function CanvasView() {
           style={{ transform: 'translate3d(0,0,0) scale(1)', transformOrigin: '0 0' }}
         >
           {sections.map((sec) => (
-            <SectionBox key={sec.id} section={sec} scale={scaleVal.current} selected={selection.sectionIds.has(sec.id)} onSelect={(id) => setSelection({ ...emptySelection(), sectionIds: new Set([id]) })} />
+            <SectionBox key={sec.id} section={sec} scale={scaleVal.current} selected={selection.sectionIds.has(sec.id)} onSelect={(id, event) => {
+              clearConnectionSelection()
+              setConnectingFrom(null)
+              setCtxMenu(null)
+              setSelection((current) => {
+                if (!event.ctrlKey && !event.metaKey && !event.shiftKey) return { ...emptySelection(), sectionIds: new Set([id]) }
+                const sectionIds = new Set(current.sectionIds)
+                if (sectionIds.has(id)) sectionIds.delete(id)
+                else sectionIds.add(id)
+                return { ...current, sectionIds }
+              })
+            }} />
           ))}
 
           {labels.map((label) => (
@@ -1231,22 +1488,24 @@ export default function CanvasView() {
 
           <svg className="connections-layer">
             <defs>
-              <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                <polygon points="0 0, 10 3.5, 0 7" fill={arrowColor} />
-              </marker>
-              <marker id="arrowhead-active" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+              <marker id="arrowhead-active" markerWidth={12 / scaleVal.current} markerHeight={9 / scaleVal.current} viewBox="0 0 10 7" refX="9" refY="3.5" orient="auto-start-reverse" markerUnits="userSpaceOnUse">
                 <polygon points="0 0, 10 3.5, 0 7" fill="var(--accent)" />
               </marker>
             </defs>
+            {portPreview && (
+              <path
+                d={portPreview.path}
+                className="conn-line conn-preview port-preview"
+                style={{ strokeWidth: previewAppearance.strokeWidth }}
+                vectorEffect="non-scaling-stroke"
+                markerStart={previewAppearance.arrow === 'start' || previewAppearance.arrow === 'both' ? 'url(#arrowhead-active)' : undefined}
+                markerEnd={previewAppearance.arrow === 'end' || previewAppearance.arrow === 'both' ? 'url(#arrowhead-active)' : undefined}
+              />
+            )}
             {connectingFrom && connectingMouse && (() => {
               const fromCard = cards.find((c) => c.id === connectingFrom)
               if (!fromCard) return null
-              const fx = fromCard.x + fromCard.width
-              const fy = fromCard.y + (fromCard.height ?? 200) / 2
-              const tx = connectingMouse.x
-              const ty = connectingMouse.y
-              const cpx = Math.abs(tx - fx) * 0.4
-              const path = `M ${fx} ${fy} C ${fx + cpx} ${fy}, ${tx - cpx} ${ty}, ${tx} ${ty}`
+              const { path } = getCardConnectionPreview(fromCard, connectingMouse)
               return (
                 <path
                   d={path}
@@ -1255,36 +1514,27 @@ export default function CanvasView() {
                 />
               )
             })()}
-            {connectionPaths.map((conn) => (
-              <g key={conn.id}
-                onMouseEnter={() => setHoveredConn(conn.id)}
-                onMouseLeave={() => setHoveredConn(null)}
-              >
-                <path d={conn.path} className="conn-hit-area" />
-                <path
-                  d={conn.path}
-                  className={`conn-line ${hoveredConn === conn.id ? 'active' : ''}`}
-                  markerEnd={hoveredConn === conn.id ? 'url(#arrowhead-active)' : 'url(#arrowhead)'}
-                />
-                {hoveredConn === conn.id && (
-                  <foreignObject
-                    x={(conn.from.x + conn.from.width + conn.to.x) / 2 - 10}
-                    y={(conn.from.y + (conn.from.height ?? 200) / 2 + conn.to.y + (conn.to.height ?? 200) / 2) / 2 - 10}
-                    width="20" height="20"
-                  >
-                    <button className="conn-delete-btn" onClick={() => deleteConnection(conn.id)}>
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                        <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
-                      </svg>
-                    </button>
-                  </foreignObject>
-                )}
-              </g>
+            {connectionPaths.filter((conn) => conn.id !== portConnection.draft?.reconnect?.connection.id).map((conn) => (
+              <ConnectionLine
+                key={conn.id}
+                connection={conn}
+                labelLayer={connectionLabelLayer}
+                selected={selectedConnectionIds.has(conn.id)}
+                highlighted={hoveredConn === conn.id}
+                scale={scaleVal.current}
+                fromTitle={cardTitles.get(conn.fromCardId) ?? '无标题卡片'}
+                toTitle={cardTitles.get(conn.toCardId) ?? '无标题卡片'}
+                onSelect={(event) => handleConnectionSelect(event, conn.id)}
+                onHover={(hovered) => setHoveredConn((current) => hovered ? conn.id : current === conn.id ? null : current)}
+                onLabelChange={(label) => updateConnections([conn.id], { label })}
+              />
             ))}
           </svg>
 
+          <svg className={`connection-label-layer${editingCardId || editingTextId ? ' is-editing' : ''}`} ref={setConnectionLabelLayer} />
+
           {cards.map((card) =>
-            visibleCardIds.has(card.id) || selection.cardIds.has(card.id) ? (
+            visibleCardIds.has(card.id) || selection.cardIds.has(card.id) || portConnection.draft?.source.cardId === card.id ? (
               <NoteCard
                 key={card.id}
                 cardId={card.id}
@@ -1307,6 +1557,31 @@ export default function CanvasView() {
             ),
           )}
 
+          {!editingCardId && !editingTextId && cards.filter((card) =>
+            visibleCardIds.has(card.id) || selection.cardIds.has(card.id) || portConnection.draft?.source.cardId === card.id,
+          ).map((card) => (
+            <CardConnectionPorts
+              key={card.id}
+              card={card}
+              scale={scaleVal.current}
+              connectedSides={portConnection.connectedSides.get(card.id)}
+              source={portConnection.draft?.source}
+              target={portConnection.draft?.target}
+              hovered={portConnection.hovered}
+              hoveredConnected={!!portConnection.hovered && portConnection.connectedSides.get(portConnection.hovered.cardId)?.has(portConnection.hovered.side)}
+              onStart={(event) => {
+                if (event.button !== 0 || !event.isPrimary) return
+                clearConnectionSelection()
+                setConnectingFrom(null)
+                setCtxMenu(null)
+                setHoveredConn(null)
+                portConnection.start(event)
+              }}
+              onLostCapture={portConnection.lostCapture}
+              onCancel={portConnection.cancel}
+            />
+          ))}
+
           {lassoRect && (
             <div
               className="lasso-rect"
@@ -1326,6 +1601,56 @@ export default function CanvasView() {
           </div>
         )}
 
+        {portConnection.draft && (
+          <div className="port-connection-hint" role="status">
+            {portConnection.draft.reconnect
+              ? portConnection.draft.target ? '松开鼠标修改连线' : '拖到新的连接点，另一端保持不变'
+              : portConnection.draft.target ? '松开鼠标完成连线' : '拖到另一张卡片的连接点'} · Esc 取消
+          </div>
+        )}
+
+        {!portConnection.draft && !portConnection.picker && !editingCardId && !editingTextId && selectedConnections.length > 0 && (
+          <ConnectionSelectionToolbar
+            connections={selectedConnections}
+            onChange={(patch) => updateConnections([...selectedConnectionIds], patch)}
+            onDelete={deleteSelectedConnections}
+            onClear={clearConnectionSelection}
+          />
+        )}
+
+        {!portConnection.draft && !portConnection.picker && !editingCardId && !editingTextId && !connectingFrom && selectedConnections.length === 0 && selectedSections.length > 0 && (
+          <SectionSelectionToolbar
+            sections={selectedSections}
+            onChange={(patch) => updateSections(selectedSections.map((section) => section.id), patch)}
+            onClear={() => {
+              setSelection(emptySelection())
+              setCtxMenu(null)
+            }}
+          />
+        )}
+
+        {!portConnection.draft && !portConnection.picker && !editingCardId && !editingTextId && selectedConnections.length === 0 && selectedSections.length === 0 && (selectedCardIds.length > 0 || connectingFrom) && (
+          <CanvasSelectionToolbar
+            cardCount={selectedCardIds.length}
+            connecting={!!connectingFrom}
+            pairConnected={pairConnected}
+            canArrange={arrangeableUnitCount(selection, sections) >= 2}
+            onGroup={groupSelectedCards}
+            onConnect={connectSelectedCards}
+            onArrange={() => arrangeUnits({
+              cardIds: selectedCardIds,
+              labelIds: [...selection.labelIds],
+              sectionIds: [...selection.sectionIds],
+              textIds: [...selection.textIds],
+            })}
+            onClear={() => {
+              setConnectingFrom(null)
+              setSelection(emptySelection())
+              setCtxMenu(null)
+            }}
+          />
+        )}
+
         {cards.length > 0 && (
           <button className="canvas-locate-btn" title="定位到卡片密集区域" onClick={handleLocate}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -1335,6 +1660,32 @@ export default function CanvasView() {
           </button>
         )}
       </div>
+
+      {portConnection.picker && (
+        <div
+          className="port-connection-picker"
+          role="dialog"
+          aria-label="选择要修改的连线"
+          style={{ left: portConnection.picker.x, top: portConnection.picker.y }}
+          onContextMenu={(event) => { event.preventDefault(); portConnection.cancel() }}
+        >
+          <p>此点有多条连线，按住一条拖到新的连接点</p>
+          <div className="port-connection-picker-list">
+            {portConnection.picker.choices.map((choice) => (
+              <button
+                key={choice.connection.id}
+                type="button"
+                onMouseEnter={() => setHoveredConn(choice.connection.id)}
+                onMouseLeave={() => setHoveredConn(null)}
+                onPointerDown={(event) => { setHoveredConn(null); portConnection.pick(event, choice) }}
+                onClick={(event) => event.preventDefault()}
+              >
+                {choice.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {ctxMenu && (
         <ContextMenu

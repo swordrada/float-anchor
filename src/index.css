@@ -1221,6 +1221,7 @@ input {
 .canvas-viewport {
   flex: 1;
   overflow: hidden;
+  outline: none;
   position: relative;
   cursor: default;
   background-color: #f6f6f6;
@@ -2379,13 +2380,6 @@ input {
   pointer-events: all;
 }
 
-.conn-hit-area {
-  fill: none;
-  stroke: transparent;
-  stroke-width: 16;
-  cursor: pointer;
-}
-
 .conn-line {
   fill: none;
   stroke: #ccc;
@@ -2404,24 +2398,6 @@ input {
   stroke-dasharray: 6 4;
   opacity: 0.7;
   pointer-events: none;
-}
-
-.conn-delete-btn {
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  color: var(--danger);
-  box-shadow: var(--shadow-sm);
-}
-
-.conn-delete-btn:hover {
-  background: rgba(229, 92, 92, 0.1);
 }
 
 /* ===== Highlight Breathe ===== */
@@ -2522,12 +2498,6 @@ input {
 
 [data-theme="dark"] .conn-line.active {
   stroke: var(--accent);
-}
-
-[data-theme="dark"] .conn-delete-btn {
-  background: #2a2a2f;
-  border-color: #444;
-  color: #ccc;
 }
 
 [data-theme="dark"] .canvas-empty-cards p {

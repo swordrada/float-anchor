@@ -241,14 +241,10 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
         autoFitAndClose()
       }
     }
-    const timer = setTimeout(
-      () => document.addEventListener('mousedown', handler),
-      80,
-    )
+    document.addEventListener('mousedown', handler)
     // Keyboard search can navigate before the normal debounced save fires.
     window.addEventListener('fa-before-search', autoFitAndClose)
     return () => {
-      clearTimeout(timer)
       document.removeEventListener('mousedown', handler)
       window.removeEventListener('fa-before-search', autoFitAndClose)
     }
@@ -256,7 +252,7 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
 
   const handleDragStart = useCallback(
     (e: React.MouseEvent) => {
-      if (e.button !== 0 || !card) return
+      if (e.defaultPrevented || e.button !== 0 || !card) return
       if (selected) return
       e.stopPropagation()
       e.preventDefault()
@@ -289,6 +285,7 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation()
+      if (e.ctrlKey || e.metaKey || e.shiftKey) return
       if (!isEditing) setEditingCard(cardId)
     },
     [cardId, isEditing, setEditingCard],
@@ -385,6 +382,7 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
     <div
       ref={cardRef}
       data-card-id={cardId}
+      data-selected={selected ? 'true' : 'false'}
       className={`note-card ${isDragging ? 'dragging' : ''} ${isResizing ? 'resizing' : ''} ${isEditing ? 'editing' : ''} ${highlight ? 'highlight-breathe' : ''} ${selected ? 'multi-selected' : ''}`}
       style={{
         left: card.x,
