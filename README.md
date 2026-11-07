@@ -47,6 +47,8 @@
 
 卡片和每日记共用所见即所得编辑器，支持一级至四级标题、加粗、斜体、删除线、列表、引用、行内代码、链接、文字颜色和高亮等常用格式。图片可直接粘贴或拖入，应用会保存为本地文件并以引用插入，避免把大型 base64 数据塞进笔记，同时让同步更轻量。
 
+卡片中的 YouTube 视频链接会自动显示封面预览，宽度跟随卡片。点击即可在卡片内播放，也可以在应用内放大观看；窄卡片会自动使用放大播放器。支持普通链接、短链接、Shorts、直播链接和起播时间。
+
 ### 流畅操作与个性化
 
 画布可通过双指滑动或鼠标中键平移，通过捏合或 `Ctrl + 滚轮` 缩放；创建卡片、文本、标题和分区，以及自动排布、缩放和微移等高频操作均可使用快捷键完成。应用提供 Light / Dark 主题与设置内快捷键速查表，让长时间整理也保持舒适。
@@ -57,13 +59,13 @@
 
 ## 下载安装
 
-当前稳定版为 [`v1.0.20`](https://github.com/swordrada/float-anchor/releases/tag/v1.0.20)，可在 [Releases](https://github.com/swordrada/float-anchor/releases) 页面下载：
+当前源码版本为 `v1.0.21`。已发布的安装包可在 [Releases](https://github.com/swordrada/float-anchor/releases) 页面下载；自行打包的文件名如下：
 
 | 文件 | 平台 | 适用设备 |
 |------|------|----------|
-| `FloatAnchor-1.0.20-mac-arm64.dmg` | macOS | Apple Silicon (M1/M2/M3/M4) |
-| `FloatAnchor-1.0.20-mac-x64.dmg` | macOS | Intel Mac |
-| `FloatAnchor-1.0.20-win-setup.exe` | Windows | 64 位 Windows |
+| `FloatAnchor-1.0.21-mac-arm64.dmg` | macOS | Apple Silicon (M1/M2/M3/M4) |
+| `FloatAnchor-1.0.21-mac-x64.dmg` | macOS | Intel Mac |
+| `FloatAnchor-1.0.21-win-setup.exe` | Windows | 64 位 Windows |
 
 ### macOS 安装
 

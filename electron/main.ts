@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, protocol, net, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, protocol, net, dialog, session } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
@@ -13,6 +13,7 @@ import { createWebDAVAdapter } from './sync/webdav-adapter'
 import { createGitHubAdapter } from './sync/github-adapter'
 import { initGitHubAuth, saveGitHubToken, readGitHubToken, clearGitHubToken, hasGitHubToken } from './sync/github-auth'
 import type { RemoteAdapter, LocalStore } from './sync/types'
+import { configureYouTubeEmbeds } from './youtube-embed'
 
 let dataDir = ''
 let dataFile = ''
@@ -1026,6 +1027,7 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 app.whenReady().then(() => {
+  configureYouTubeEmbeds(session.defaultSession)
   if (process.platform === 'darwin') {
     app.dock.setIcon(path.join(__dirname, '../build/icon.png'))
   }

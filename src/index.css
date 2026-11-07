@@ -1913,6 +1913,105 @@ input {
   margin: 8px 0;
 }
 
+/* ===== YouTube card preview ===== */
+.youtube-preview {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin: 8px 0;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+}
+
+.youtube-media {
+  display: block;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #171717;
+}
+
+.youtube-media.is-playing { min-height: 200px; }
+
+.youtube-cover {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  color: #fff;
+}
+
+.markdown-body .youtube-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  margin: 0;
+  border-radius: 0;
+}
+
+.youtube-play-icon {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #f03;
+  color: #fff;
+  border-radius: 12px;
+  padding: 8px 20px;
+  font-size: 24px;
+  line-height: 1.3;
+}
+
+.youtube-cover-label {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 18px 10px 8px;
+  background: linear-gradient(transparent, #000b);
+  font-size: 12px;
+}
+
+.youtube-player {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.youtube-media > .youtube-player { position: absolute; inset: 0; }
+
+.youtube-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 8px 10px;
+  font-size: 12px;
+  background: var(--card-bg);
+}
+
+.youtube-actions a { flex: 1 1 100%; overflow-wrap: anywhere; min-width: 0; }
+.youtube-actions button { color: var(--accent); }
+.youtube-cover:focus-visible, .youtube-actions button:focus-visible { outline: 2px solid var(--accent); outline-offset: -3px; }
+.youtube-dialog {
+  width: min(960px, calc(100vw - 48px));
+  max-width: none;
+  max-height: calc(100vh - 48px);
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--card-bg);
+  color: var(--text-primary);
+}
+.youtube-dialog::backdrop { background: #000a; }
+.youtube-dialog-toolbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; }
+.youtube-dialog-toolbar a { color: var(--accent); }
+.youtube-dialog > .youtube-player { height: min(70vh, 540px); min-height: 200px; }
+
 /* ===== Section Box ===== */
 .section-box {
   position: absolute;
