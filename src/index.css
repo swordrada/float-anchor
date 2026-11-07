@@ -1330,6 +1330,7 @@ input {
 /* ===== Note Card ===== */
 .note-card {
   position: absolute;
+  min-height: 80px;
   background: var(--card-bg);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-sm);

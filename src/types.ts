@@ -6,6 +6,8 @@ export interface Card {
   y: number
   width: number
   height?: number
+  /** Read-mode height follows rendered content unless explicitly resized. */
+  autoHeight?: boolean
   /** Creation order used while instant-mode cards are still auto-laid out. */
   instantOrder?: number
   sourceId?: string

@@ -273,6 +273,7 @@ describe('即刻模式写入', () => {
       x: 124,
       y: 140,
       width: 373,
+      autoHeight: true,
     })
     expect(section?.cardIds).toContain(cardId)
     expect(section?.height).toBeGreaterThanOrEqual(284)
@@ -286,6 +287,7 @@ describe('即刻模式写入', () => {
     expect(card).toMatchObject({
       title: '稍后继续展开',
       content: '',
+      autoHeight: true,
     })
   })
 

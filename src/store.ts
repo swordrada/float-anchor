@@ -577,6 +577,7 @@ export const useStore = create<AppState>((set, get) => ({
       y,
       width: cardWidth,
       height: estimatedHeight,
+      autoHeight: true,
       ...(selectedSection
         ? { instantOrder: Math.max(0, ...canvas.cards.map((item) => item.instantOrder ?? 0)) + 1 }
         : {}),

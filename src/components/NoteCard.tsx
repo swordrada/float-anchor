@@ -111,22 +111,6 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
     }
   }, [card?.title, card?.content, isEditing])
 
-  const measureHeight = useCallback(() => {
-    const el = cardRef.current
-    if (!el) return
-    const prev = el.style.height
-    const prevContain = el.style.contain
-    el.style.height = 'auto'
-    el.style.contain = 'none'
-    el.style.overflow = 'visible'
-    void el.offsetHeight
-    const naturalHeight = Math.max(80, el.scrollHeight)
-    el.style.height = prev
-    el.style.contain = prevContain
-    el.style.overflow = ''
-    return naturalHeight
-  }, [])
-
   useEffect(() => {
     if (isEditing) {
       wasEditing.current = true
@@ -138,50 +122,35 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
       })
     } else if (wasEditing.current) {
       wasEditing.current = false
-      requestAnimationFrame(() => {
-        const h = measureHeight()
-        if (h != null) updateCard(cardId, { height: h })
-      })
+      updateCard(cardId, { autoHeight: true })
     }
-  }, [isEditing, cardId, updateCard, measureHeight])
-
-  const prevContent = useRef(card?.content)
-  const prevTitle = useRef(card?.title)
-  const measuredOnce = useRef(false)
-  useEffect(() => {
-    if (isEditing || !card) return
-    const firstMeasure = !measuredOnce.current
-    const contentChanged = prevContent.current !== card.content
-    const titleChanged = prevTitle.current !== card.title
-    measuredOnce.current = true
-    prevContent.current = card.content
-    prevTitle.current = card.title
-    if (!firstMeasure && !contentChanged && !titleChanged) return
-    requestAnimationFrame(() => {
-      const h = measureHeight()
-      if (h != null && (card.height == null || Math.abs(h - card.height) > 2)) {
-        updateCard(cardId, { height: h })
-      }
-    })
-  }, [card?.content, card?.title, card?.width])
+  }, [isEditing, cardId, updateCard])
 
   useEffect(() => {
-    if (isEditing) return
-    const contentElement = cardRef.current?.querySelector<HTMLElement>('.card-content')
-    if (!contentElement?.querySelector('.youtube-preview')) return
+    const el = cardRef.current
+    if (!el || isEditing || isResizing || card?.autoHeight === false) return
     let frame = 0
-    const observer = new ResizeObserver(() => {
+    const scheduleMeasurement = () => {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
-        const h = measureHeight()
-        const current = useStore.getState().canvases.flatMap((c) => c.cards).find((c) => c.id === cardId)
-        if (h != null && current && Math.abs(h - (current.height ?? 0)) > 2) updateCard(cardId, { height: h })
+        // offsetHeight includes borders and is independent of canvas zoom.
+        // A hidden canvas must wait until ResizeObserver sees it again.
+        if (!el.isConnected || el.offsetWidth === 0 || el.offsetHeight === 0) return
+        const state = useStore.getState()
+        const current = state.canvases.find((c) => c.id === state.activeCanvasId)?.cards.find((c) => c.id === cardId)
+        if (!current || current.autoHeight === false || state.editingCardId === cardId) return
+        const height = el.offsetHeight
+        if (current.height == null || Math.abs(height - current.height) > 1) updateCard(cardId, { height })
       })
-    })
-    observer.observe(contentElement)
-    contentElement.querySelectorAll('.youtube-preview').forEach((preview) => observer.observe(preview))
+    }
+    // Natural height is controlled by CSS, not by the cached estimate. Keep
+    // layout/section/connection geometry in sync after images, fonts or video
+    // load, and when another window reloads an older height for the same text.
+    const observer = new ResizeObserver(scheduleMeasurement)
+    observer.observe(el)
+    scheduleMeasurement()
     return () => { observer.disconnect(); cancelAnimationFrame(frame) }
-  }, [cardId, card?.content, isEditing, measureHeight, updateCard])
+  }, [cardId, card?.height, card?.autoHeight, isEditing, isResizing, updateCard])
 
   const debouncedSave = useCallback(
     (t: string, c: string) => {
@@ -208,7 +177,7 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
 
   const autoFitAndClose = useCallback(() => {
     clearTimeout(saveTimer.current)
-    updateCard(cardId, { title, content })
+    updateCard(cardId, { title, content, autoHeight: true })
     setEditingCard(null)
   }, [cardId, title, content, updateCard, setEditingCard])
 
@@ -308,9 +277,7 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
       const sx = e.clientX
       const sy = e.clientY
       const ow = card.width
-      const oh =
-        card.height ??
-        (cardRef.current ? cardRef.current.getBoundingClientRect().height / scale : 200)
+      const oh = cardRef.current?.offsetHeight ?? card.height ?? 200
       const s = scale
       let resizeRaf = 0
       const onMove = (ev: MouseEvent) => {
@@ -318,7 +285,7 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
         resizeRaf = requestAnimationFrame(() => {
           const nw = Math.max(200, ow + (ev.clientX - sx) / s)
           const nh = Math.max(100, oh + (ev.clientY - sy) / s)
-          updateCard(cardId, { width: nw, height: nh, instantOrder: undefined })
+          updateCard(cardId, { width: nw, height: nh, autoHeight: false, instantOrder: undefined })
         })
       }
       const onUp = () => {
@@ -387,7 +354,7 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
         left: card.x,
         top: card.y,
         width: card.width,
-        ...(card.height && !isEditing ? { height: card.height } : {}),
+        ...(card.autoHeight === false && card.height && !isEditing ? { height: card.height } : {}),
       }}
       onDoubleClick={handleDoubleClick}
     >

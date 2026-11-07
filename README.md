@@ -41,7 +41,7 @@
 
 ### 即刻模式
 
-需要先把想法记下来时，可从侧栏切换到独立的「即刻模式」窗口。它会置顶显示一个专注的记录空间，支持 Markdown，按 `⌘ + Enter` / `Ctrl + Enter` 即可投入每日记；关闭窗口后会自动回到主界面。
+需要先把想法记下来时，可从侧栏切换到独立的「即刻模式」窗口。它会置顶显示一个专注的记录空间，支持 Markdown，按 `⌘ + Enter` / `Ctrl + Enter` 即可将卡片投入所选白板和分区；返回白板后，卡片会按当前宽度自动适配内容高度。
 
 ### 富文本写作与素材
 
@@ -59,13 +59,13 @@
 
 ## 下载安装
 
-当前源码版本为 `v1.0.22`。已发布的安装包可在 [Releases](https://github.com/swordrada/float-anchor/releases) 页面下载；自行打包的文件名如下：
+当前源码版本为 `v1.0.23`。已发布的安装包可在 [Releases](https://github.com/swordrada/float-anchor/releases) 页面下载；自行打包的文件名如下：
 
 | 文件 | 平台 | 适用设备 |
 |------|------|----------|
-| `FloatAnchor-1.0.22-mac-arm64.dmg` | macOS | Apple Silicon (M1/M2/M3/M4) |
-| `FloatAnchor-1.0.22-mac-x64.dmg` | macOS | Intel Mac |
-| `FloatAnchor-1.0.22-win-setup.exe` | Windows | 64 位 Windows |
+| `FloatAnchor-1.0.23-mac-arm64.dmg` | macOS | Apple Silicon (M1/M2/M3/M4) |
+| `FloatAnchor-1.0.23-mac-x64.dmg` | macOS | Intel Mac |
+| `FloatAnchor-1.0.23-win-setup.exe` | Windows | 64 位 Windows |
 
 ### macOS 安装
 
@@ -99,7 +99,7 @@
 ### 即刻模式
 
 - **打开** — 点击侧栏的 **切换即刻模式**；主窗口会最小化，独立窗口始终置顶
-- **快速记录** — 输入想法后按 `⌘ + Enter` / `Ctrl + Enter`，内容会追加到当天的每日记
+- **快速记录** — 选择白板及分区，输入想法后按 `⌘ + Enter` / `Ctrl + Enter`，即可创建自动适配内容高度的卡片
 - **返回主界面** — 关闭即刻模式窗口，主窗口会自动恢复
 
 ### 卡片操作
