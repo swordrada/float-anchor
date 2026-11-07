@@ -59,13 +59,13 @@
 
 ## 下载安装
 
-当前源码版本为 `v1.0.21`。已发布的安装包可在 [Releases](https://github.com/swordrada/float-anchor/releases) 页面下载；自行打包的文件名如下：
+当前源码版本为 `v1.0.22`。已发布的安装包可在 [Releases](https://github.com/swordrada/float-anchor/releases) 页面下载；自行打包的文件名如下：
 
 | 文件 | 平台 | 适用设备 |
 |------|------|----------|
-| `FloatAnchor-1.0.21-mac-arm64.dmg` | macOS | Apple Silicon (M1/M2/M3/M4) |
-| `FloatAnchor-1.0.21-mac-x64.dmg` | macOS | Intel Mac |
-| `FloatAnchor-1.0.21-win-setup.exe` | Windows | 64 位 Windows |
+| `FloatAnchor-1.0.22-mac-arm64.dmg` | macOS | Apple Silicon (M1/M2/M3/M4) |
+| `FloatAnchor-1.0.22-mac-x64.dmg` | macOS | Intel Mac |
+| `FloatAnchor-1.0.22-win-setup.exe` | Windows | 64 位 Windows |
 
 ### macOS 安装
 

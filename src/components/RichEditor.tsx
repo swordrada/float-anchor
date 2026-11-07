@@ -9,61 +9,8 @@ import Color from '@tiptap/extension-color'
 import { TextStyle } from '@tiptap/extension-text-style'
 import Highlight from '@tiptap/extension-highlight'
 import { Plugin } from '@tiptap/pm/state'
-import { marked } from 'marked'
-import TurndownService from 'turndown'
-
-const td = new TurndownService({
-  headingStyle: 'atx',
-  hr: '---',
-  bulletListMarker: '-',
-  codeBlockStyle: 'fenced',
-  emDelimiter: '*',
-  strongDelimiter: '**',
-})
-
-td.addRule('strikethrough', {
-  filter: (node) => ['DEL', 'S', 'STRIKE'].includes(node.nodeName),
-  replacement: (c) => `~~${c}~~`,
-})
-
-td.addRule('emptyParagraph', {
-  filter: (node) => {
-    if (node.nodeName !== 'P') return false
-    const html = (node as HTMLElement).innerHTML?.trim()
-    return html === '<br>' || html === '' || html === '<br class="ProseMirror-trailingBreak">'
-  },
-  replacement: () => '\n\n<br>\n\n',
-})
-
-td.addRule('image', {
-  filter: 'img',
-  replacement: (_c, node) => {
-    const el = node as HTMLElement
-    const src = el.getAttribute('src') || ''
-    const alt = el.getAttribute('alt') || ''
-    return `![${alt}](${src})`
-  },
-})
-
-td.addRule('coloredText', {
-  filter: (node) => {
-    return node.nodeName === 'SPAN' && !!(node as HTMLElement).style.color
-  },
-  replacement: (c, node) => {
-    const color = (node as HTMLElement).style.color
-    return `<span style="color: ${color}">${c}</span>`
-  },
-})
-
-td.addRule('highlightMark', {
-  filter: (node) => {
-    return node.nodeName === 'MARK' && !!(node as HTMLElement).getAttribute('data-color')
-  },
-  replacement: (c, node) => {
-    const color = (node as HTMLElement).getAttribute('data-color') || ''
-    return `<mark data-color="${color}" style="background-color: ${color}">${c}</mark>`
-  },
-})
+import { htmlToMarkdown, markdownToHtml } from '../editor/markdown'
+import { ListContinuation } from '../editor/listContinuation'
 
 function fileToBase64(file: File): Promise<string> {
   return new Promise((resolve) => {
@@ -87,11 +34,6 @@ async function insertImageFile(editor: ReturnType<typeof useEditor>, file: File)
   const src = await fileToBase64(file) // 回退：保证粘贴永不失败
   editor.chain().focus().setImage({ src }).run()
   requestAnimationFrame(() => editor.chain().focus('end').run())
-}
-
-function mdToHtml(md: string): string {
-  if (!md.trim()) return ''
-  return marked.parse(md, { async: false }) as string
 }
 
 // A block image at the end of a ProseMirror document otherwise leaves no
@@ -258,6 +200,7 @@ export default function RichEditor({
         HTMLAttributes: { class: 'editor-image' },
       }),
       TrailingParagraphAfterImage,
+      ListContinuation,
       TextStyle,
       Color,
       Highlight.configure({
@@ -268,14 +211,14 @@ export default function RichEditor({
         placeholder,
       }),
     ],
-    content: mdToHtml(content),
+    content: markdownToHtml(content),
     onCreate: ({ editor: e }) => {
       if (e.state.doc.lastChild?.type.name === 'image') {
         e.commands.insertContentAt(e.state.doc.content.size, { type: 'paragraph' })
       }
     },
     onUpdate: ({ editor: e }) => {
-      onChange(td.turndown(e.getHTML()))
+      onChange(htmlToMarkdown(e.getHTML()))
     },
     editorProps: {
       handlePaste: (_view, event) => {
