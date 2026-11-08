@@ -61,15 +61,15 @@
 
 ## 下载安装
 
-当前开发版本为 **`v1.0.23`（尚未发布）**，修复更新检测，并在检测失败时显示具体错误。
-
-当前稳定版为 [`v1.0.22`](https://github.com/swordrada/float-anchor/releases/tag/v1.0.22)，可在 [Releases](https://github.com/swordrada/float-anchor/releases) 页面下载：
+当前稳定版为 **[`v1.0.23`](https://github.com/swordrada/float-anchor/releases/tag/v1.0.23)**，改进更新检测与失败提示，提供 macOS（Apple Silicon / Intel）和 Windows 64 位安装包。完整变更见 [版本公告](CHANGELOG.md#v1023)。
 
 | 文件 | 平台 | 适用设备 |
 |------|------|----------|
-| `FloatAnchor-1.0.22-mac-arm64.dmg` | macOS | Apple Silicon (M1/M2/M3/M4) |
-| `FloatAnchor-1.0.22-mac-x64.dmg` | macOS | Intel Mac |
-| `FloatAnchor-1.0.22-win-setup.exe` | Windows | 64 位 Windows |
+| [FloatAnchor-1.0.23-mac-arm64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.23/FloatAnchor-1.0.23-mac-arm64.dmg) | macOS | Apple Silicon（M 系列） |
+| [FloatAnchor-1.0.23-mac-x64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.23/FloatAnchor-1.0.23-mac-x64.dmg) | macOS | Intel Mac |
+| [FloatAnchor-1.0.23-win-setup.exe](https://github.com/swordrada/float-anchor/releases/download/v1.0.23/FloatAnchor-1.0.23-win-setup.exe) | Windows | 64 位 Windows（x64） |
+
+已安装的用户可在 **设置 → 应用 → 软件更新** 中检查更新。如果旧版本无法发现更新，可直接下载对应平台安装包，退出应用后覆盖安装；笔记仍保存在原来的本地数据目录。
 
 ### macOS 安装
 
@@ -178,7 +178,7 @@
 - **主题切换** — 在 Light 和 Dark 之间切换
 - **云同步** — 选择同步后端：**坚果云 WebDAV**、**GitHub** 或 **关闭**。配置方式见下方 [云同步](#云同步) 小节
 - **提取内嵌图片为文件** — 在「数据管理」中，把历史笔记里以 base64 内嵌的图片一键抽取为本地文件、替换为引用，显著减小数据体积（操作前自动备份）
-- **软件更新** — 下载更新时可在侧栏或设置中手动停止，之后继续下载会自动从已完成进度恢复
+- **软件更新** — 在「应用」中手动检查更新；检查失败会显示具体原因，可再次点击重试。下载更新时可在侧栏或设置中手动停止，之后继续下载会自动从已完成进度恢复
 
 ### 云同步
 
