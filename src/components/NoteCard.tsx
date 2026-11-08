@@ -4,6 +4,8 @@ import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
 import { useStore, useCardById, useIsEditing, useCardActions } from '../store'
 import RichEditor from './RichEditor'
+import YouTubePreview from './YouTubePreview'
+import { parseYouTubeUrl } from '../lib/youtube'
 
 interface Props {
   cardId: string
@@ -167,6 +169,24 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
       }
     })
   }, [card?.content, card?.title, card?.width])
+
+  useEffect(() => {
+    if (isEditing) return
+    const contentElement = cardRef.current?.querySelector<HTMLElement>('.card-content')
+    if (!contentElement?.querySelector('.youtube-preview')) return
+    let frame = 0
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        const h = measureHeight()
+        const current = useStore.getState().canvases.flatMap((c) => c.cards).find((c) => c.id === cardId)
+        if (h != null && current && Math.abs(h - (current.height ?? 0)) > 2) updateCard(cardId, { height: h })
+      })
+    })
+    observer.observe(contentElement)
+    contentElement.querySelectorAll('.youtube-preview').forEach((preview) => observer.observe(preview))
+    return () => { observer.disconnect(); cancelAnimationFrame(frame) }
+  }, [cardId, card?.content, isEditing, measureHeight, updateCard])
 
   const debouncedSave = useCallback(
     (t: string, c: string) => {
@@ -345,6 +365,8 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
         if (faMatch) {
           return <FaCardLink targetId={faMatch[1]} />
         }
+        const video = parseYouTubeUrl(href)
+        if (video) return <YouTubePreview key={`${video.id}:${video.start}`} video={video}>{children}</YouTubePreview>
       }
       return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
     },

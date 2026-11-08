@@ -14,6 +14,7 @@ import { getWheelZoomFactor } from '../zoom'
 import { expandCardIdsForSelectedSections } from '../canvasSelection'
 import { getSearchTargetBounds, getSearchTargetViewport } from '../lib/searchNavigation'
 import type { SearchNavigationTarget } from '../lib/searchNavigation'
+import { getConnectionGeometry, getConnectionPreview } from '../connectionGeometry'
 
 const MIN_SCALE = 0.15
 const MAX_SCALE = 3
@@ -174,15 +175,6 @@ function findDensestCenter(cards: Card[]): { cx: number; cy: number; clusterCard
   return { cx, cy, clusterCards: cluster.map((c) => c.card) }
 }
 
-function getConnectionPath(from: Card, to: Card): string {
-  const fx = from.x + from.width
-  const fy = from.y + (from.height ?? 200) / 2
-  const tx = to.x
-  const ty = to.y + (to.height ?? 200) / 2
-  const cpx = Math.abs(tx - fx) * 0.4
-  return `M ${fx} ${fy} C ${fx + cpx} ${fy}, ${tx - cpx} ${ty}, ${tx} ${ty}`
-}
-
 export default function CanvasView() {
   const addCard = useStore((s) => s.addCard)
   const deleteCard = useStore((s) => s.deleteCard)
@@ -234,6 +226,7 @@ export default function CanvasView() {
   const [confirmDelete, setConfirmDelete] = useState<{ cardIds: string[]; labelIds: string[]; sectionIds: string[]; textIds: string[] } | null>(null)
   const [connectingFrom, setConnectingFrom] = useState<string | null>(null)
   const [connectingMouse, setConnectingMouse] = useState<{ x: number; y: number } | null>(null)
+  const [connectingTo, setConnectingTo] = useState<string | null>(null)
   const [hoveredConn, setHoveredConn] = useState<string | null>(null)
 
   const [selection, setSelection] = useState<SelectionSet>(emptySelection)
@@ -808,11 +801,14 @@ export default function CanvasView() {
   useEffect(() => {
     if (!connectingFrom) {
       setConnectingMouse(null)
+      setConnectingTo(null)
       return
     }
     const onMove = (e: MouseEvent) => {
       const coords = toCanvasCoords(e.clientX, e.clientY)
       setConnectingMouse(coords)
+      const targetId = (e.target as Element).closest('.note-card')?.getAttribute('data-card-id')
+      setConnectingTo(targetId && targetId !== connectingFrom ? targetId : null)
     }
     document.addEventListener('mousemove', onMove)
     return () => document.removeEventListener('mousemove', onMove)
@@ -1176,9 +1172,9 @@ export default function CanvasView() {
         const from = cardMap.get(conn.fromCardId)
         const to = cardMap.get(conn.toCardId)
         if (!from || !to) return null
-        return { ...conn, path: getConnectionPath(from, to), from, to }
+        return { ...conn, ...getConnectionGeometry(from, to) }
       })
-      .filter(Boolean) as (Connection & { path: string; from: Card; to: Card })[]
+      .filter(Boolean) as (Connection & ReturnType<typeof getConnectionGeometry>)[]
   }, [cards, connections])
 
   if (!meta) {
@@ -1241,12 +1237,8 @@ export default function CanvasView() {
             {connectingFrom && connectingMouse && (() => {
               const fromCard = cards.find((c) => c.id === connectingFrom)
               if (!fromCard) return null
-              const fx = fromCard.x + fromCard.width
-              const fy = fromCard.y + (fromCard.height ?? 200) / 2
-              const tx = connectingMouse.x
-              const ty = connectingMouse.y
-              const cpx = Math.abs(tx - fx) * 0.4
-              const path = `M ${fx} ${fy} C ${fx + cpx} ${fy}, ${tx - cpx} ${ty}, ${tx} ${ty}`
+              const targetCard = cards.find((c) => c.id === connectingTo)
+              const { path } = getConnectionPreview(fromCard, connectingMouse, targetCard)
               return (
                 <path
                   d={path}
@@ -1268,8 +1260,8 @@ export default function CanvasView() {
                 />
                 {hoveredConn === conn.id && (
                   <foreignObject
-                    x={(conn.from.x + conn.from.width + conn.to.x) / 2 - 10}
-                    y={(conn.from.y + (conn.from.height ?? 200) / 2 + conn.to.y + (conn.to.height ?? 200) / 2) / 2 - 10}
+                    x={conn.midpoint.x - 10}
+                    y={conn.midpoint.y - 10}
                     width="20" height="20"
                   >
                     <button className="conn-delete-btn" onClick={() => deleteConnection(conn.id)}>

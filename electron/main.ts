@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, protocol, net, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, protocol, net, dialog, session } from 'electron'
 import path from 'node:path'
 import fs from 'node:fs'
 import { pathToFileURL } from 'node:url'
@@ -22,6 +22,7 @@ import { checkForReleaseUpdate, type UpdateCheckResult } from './updater'
 if (!app.isPackaged && process.env.FLOAT_ANCHOR_PREVIEW_DIR) {
   app.setPath('userData', path.resolve(process.env.FLOAT_ANCHOR_PREVIEW_DIR))
 }
+import { configureYouTubeEmbeds } from './youtube-embed'
 
 let dataDir = ''
 let dataFile = ''
@@ -1054,6 +1055,7 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 app.whenReady().then(() => {
+  configureYouTubeEmbeds(session.defaultSession)
   if (process.platform === 'darwin') {
     app.dock.setIcon(path.join(__dirname, '../build/icon.png'))
   }
