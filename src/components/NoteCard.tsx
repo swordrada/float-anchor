@@ -103,6 +103,7 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
   const cardRef = useRef<HTMLDivElement>(null)
   const titleRef = useRef<HTMLInputElement>(null)
   const saveTimer = useRef<ReturnType<typeof setTimeout>>()
+  const latestSave = useRef({ title: '', content: '' })
   const wasEditing = useRef(false)
 
   useEffect(() => {
@@ -170,11 +171,11 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
 
   const debouncedSave = useCallback(
     (t: string, c: string) => {
-      clearTimeout(saveTimer.current)
-      saveTimer.current = setTimeout(
-        () => updateCard(cardId, { title: t, content: c }),
-        500,
-      )
+      latestSave.current = { title: t, content: c }
+      if (!saveTimer.current) saveTimer.current = setTimeout(() => {
+        saveTimer.current = undefined
+        updateCard(cardId, latestSave.current)
+      }, 500)
     },
     [cardId, updateCard],
   )
@@ -193,6 +194,7 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
 
   const autoFitAndClose = useCallback(() => {
     clearTimeout(saveTimer.current)
+    saveTimer.current = undefined
     updateCard(cardId, { title, content })
     setEditingCard(null)
   }, [cardId, title, content, updateCard, setEditingCard])
@@ -209,6 +211,7 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
     try {
       if (isEditing) {
         clearTimeout(saveTimer.current)
+        saveTimer.current = undefined
         updateCard(cardId, { title, content })
         setEditingCard(null)
       }
@@ -247,10 +250,19 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
     )
     // Keyboard search can navigate before the normal debounced save fires.
     window.addEventListener('fa-before-search', autoFitAndClose)
+    window.addEventListener('fa-before-reload', autoFitAndClose)
+    const flushEditor = () => {
+      clearTimeout(saveTimer.current)
+      saveTimer.current = undefined
+      updateCard(cardId, { title, content })
+    }
+    window.addEventListener('fa-before-save', flushEditor)
     return () => {
       clearTimeout(timer)
       document.removeEventListener('mousedown', handler)
       window.removeEventListener('fa-before-search', autoFitAndClose)
+      window.removeEventListener('fa-before-reload', autoFitAndClose)
+      window.removeEventListener('fa-before-save', flushEditor)
     }
   }, [isEditing, autoFitAndClose])
 

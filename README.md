@@ -57,17 +57,17 @@
 
 ### 本地优先与可靠同步
 
-所有数据默认保存在本地；如有跨设备需求，可选择坚果云 WebDAV 或 GitHub 仓库同步。保存后的变更会自动上传，并定期检查远端内容；当远端可能覆盖大量本地数据时，应用会暂停自动同步并要求确认。同步状态常驻侧栏，应用内更新支持检测、下载、暂停与继续。
+所有数据默认保存在本地；如有跨设备需求，可选择坚果云 WebDAV 或 GitHub 仓库同步。编辑先保存到本机，云端每 5 分钟批量同步，正常关闭时也会尝试同步；启动时自动核对双方内容。画布平移、缩放和页面切换仅在本机保存，双方同时修改或远端可能覆盖大量本地数据时会暂停并要求确认。同步状态常驻侧栏，应用内更新支持检测、下载、暂停与继续。
 
 ## 下载安装
 
-当前稳定版为 **[`v1.0.23`](https://github.com/swordrada/float-anchor/releases/tag/v1.0.23)**，改进更新检测与失败提示，提供 macOS（Apple Silicon / Intel）和 Windows 64 位安装包。完整变更见 [版本公告](CHANGELOG.md#v1023)。
+当前稳定版为 **[`v1.0.24`](https://github.com/swordrada/float-anchor/releases/tag/v1.0.24)**，优化本地保存和云端批量同步，提供 macOS（Apple Silicon / Intel）和 Windows 64 位安装包。完整变更见 [版本公告](CHANGELOG.md#v1024)。
 
 | 文件 | 平台 | 适用设备 |
 |------|------|----------|
-| [FloatAnchor-1.0.23-mac-arm64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.23/FloatAnchor-1.0.23-mac-arm64.dmg) | macOS | Apple Silicon（M 系列） |
-| [FloatAnchor-1.0.23-mac-x64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.23/FloatAnchor-1.0.23-mac-x64.dmg) | macOS | Intel Mac |
-| [FloatAnchor-1.0.23-win-setup.exe](https://github.com/swordrada/float-anchor/releases/download/v1.0.23/FloatAnchor-1.0.23-win-setup.exe) | Windows | 64 位 Windows（x64） |
+| [FloatAnchor-1.0.24-mac-arm64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.24/FloatAnchor-1.0.24-mac-arm64.dmg) | macOS | Apple Silicon（M 系列） |
+| [FloatAnchor-1.0.24-mac-x64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.24/FloatAnchor-1.0.24-mac-x64.dmg) | macOS | Intel Mac |
+| [FloatAnchor-1.0.24-win-setup.exe](https://github.com/swordrada/float-anchor/releases/download/v1.0.24/FloatAnchor-1.0.24-win-setup.exe) | Windows | 64 位 Windows（x64） |
 
 已安装的用户可在 **设置 → 应用 → 软件更新** 中检查更新。如果旧版本无法发现更新，可直接下载对应平台安装包，退出应用后覆盖安装；笔记仍保存在原来的本地数据目录。
 
@@ -182,7 +182,9 @@
 
 ### 云同步
 
-应用**始终优先展示本地数据**；配置同步后端后，保存会快速上传本地改动，后台每隔一段时间检查远端更新。如果云端数据会覆盖大量本地内容，会**暂停自动同步并要求你确认**后再继续。同步状态（待同步 / 同步中 / 已同步 / 失败）常驻左侧菜单底部。
+应用**始终优先保存和展示本地数据**。配置同步后端后，启动时自动核对，之后**每 5 分钟批量同步一次**，也可在设置中手动同步；正常关闭会先保存本地，再限时尝试同步，离线时保留本地内容并在下次启动重试。画布平移、缩放、页面切换属于本机视图，不会因此上传整份笔记。
+
+同步会比较实际内容与上次共同版本：只有本地修改时上传，只有远端修改时备份后下载；双方都修改过或远端覆盖风险较高时，**保留本地并要求你确认**。侧栏用“已保存·待同步”区分本地保存与云端完成。多设备建议一起升级，以避免旧客户端继续频繁上传视图变化。详见 [同步机制](SYNC.md)。
 
 在 **设置 → 同步** 中选择后端：
 

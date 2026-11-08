@@ -87,6 +87,7 @@ export interface AppData {
   journalViewMode?: 'detail' | 'table'
   journalSelectedDate?: string
   _syncTimestamp?: number
+  _contentUpdatedAt?: number
 }
 
 export interface JournalEntry {
@@ -124,6 +125,7 @@ export interface WebDAVSyncSummary {
   connectionCount: number
   totalEntityCount: number
   textCount: number
+  journalEntryCount?: number
 }
 
 export interface WebDAVSyncDecision {
@@ -147,6 +149,7 @@ export interface WebDAVSyncResult {
   data?: AppData | null
   decision?: WebDAVSyncDecision
   error?: string
+  pending?: boolean
 }
 
 interface UpdateInfo {
@@ -200,6 +203,7 @@ declare global {
       winMinimize: () => void
       winMaximize: () => void
       winClose: () => void
+      onBeforeClose?: (cb: () => Promise<void>) => () => void
       openInstantMode: (cardId?: string) => Promise<boolean>
       getInstantTarget: () => Promise<InstantModeTarget | null>
       onInstantTarget: (cb: (target: InstantModeTarget) => void) => () => void
@@ -222,6 +226,7 @@ declare global {
       getResumeProgress: (assetName: string) => Promise<number>
       checkUpdate: () => Promise<UpdateCheckResult>
       syncTest: (config: WebDAVConfig) => Promise<{ success: boolean; error?: string }>
+      getSyncPending?: () => Promise<boolean>
       syncAuto: () => Promise<WebDAVSyncResult>
       syncStartup: () => Promise<WebDAVSyncResult>
       syncPeriodic: () => Promise<WebDAVSyncResult>

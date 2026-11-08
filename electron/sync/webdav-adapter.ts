@@ -17,7 +17,7 @@ function toBinaryBuffer(content: unknown): Buffer {
 
 async function ensureDir(client: any, dir: string) {
   try {
-    if (!(await client.exists(dir))) await client.createDirectory(dir)
+    if (!(await client.exists(dir, { signal: AbortSignal.timeout(20000) }))) await client.createDirectory(dir, { signal: AbortSignal.timeout(20000) })
   } catch (err) {
     console.log(`ensureDir note for ${dir}:`, err)
   }
@@ -37,7 +37,7 @@ export function createWebDAVAdapter(config: { server: string; username: string; 
     async test() {
       try {
         const client = await getClient()
-        await client.getDirectoryContents('/')
+        await client.getDirectoryContents('/', { signal: AbortSignal.timeout(20000) })
         await ensureDir(client, WEBDAV_REMOTE_DIR)
         return { ok: true }
       } catch (err) {
@@ -46,14 +46,25 @@ export function createWebDAVAdapter(config: { server: string; username: string; 
     },
     async loadRemoteSnapshot(): Promise<{ data: AppData; tag?: string } | null> {
       const client = await getClient()
-      if (!(await client.exists(WEBDAV_REMOTE_FILE))) return null
-      const raw = await client.getFileContents(WEBDAV_REMOTE_FILE, { format: 'text' })
-      return { data: normalizeSyncData(JSON.parse(raw as string)) }
+      try {
+        const response = await client.getFileContents(WEBDAV_REMOTE_FILE, { format: 'text', details: true, signal: AbortSignal.timeout(20000) })
+        return { data: normalizeSyncData(JSON.parse(response.data)), tag: response.headers.etag }
+      } catch (error: any) {
+        if (error.status === 404) return null
+        throw error
+      }
     },
-    async uploadRemoteSnapshot(data: AppData) {
+    async uploadRemoteSnapshot(data: AppData, opts) {
       const client = await getClient()
+      if (opts && !opts.createOnly && !opts.ifMatch) throw new Error('云端未提供文件版本标识，已保留本地内容，请稍后重试')
       await ensureDir(client, WEBDAV_REMOTE_DIR)
-      await client.putFileContents(WEBDAV_REMOTE_FILE, JSON.stringify(data, null, 2), { overwrite: true })
+      const saved = await client.putFileContents(WEBDAV_REMOTE_FILE, JSON.stringify(data, null, 2), {
+        overwrite: !opts?.createOnly,
+        signal: AbortSignal.timeout(20000),
+        headers: opts?.ifMatch ? { 'If-Match': opts.ifMatch } : {},
+      })
+      if (!saved) throw new Error('云端已更新，请重新同步')
+      // Do not cache a fresh PROPFIND here: it may belong to another writer.
       return {}
     },
     async getRemoteTag() {
@@ -61,16 +72,16 @@ export function createWebDAVAdapter(config: { server: string; username: string; 
       // 不存在或出错 → 返回 null，调用方退回完整 reconcile。
       try {
         const client = await getClient()
-        const st = await client.stat(WEBDAV_REMOTE_FILE) as { etag?: string | null; lastmod?: string }
-        return st.etag || st.lastmod || null
+        const st = await client.stat(WEBDAV_REMOTE_FILE, { signal: AbortSignal.timeout(20000) }) as { etag?: string | null; lastmod?: string }
+        return st.etag ? (st.etag.startsWith('W/') ? st.etag : JSON.stringify(st.etag.replaceAll('"', ''))) : null
       } catch {
         return null
       }
     },
     async listRemoteImages(): Promise<RemoteImageEntry[]> {
       const client = await getClient()
-      if (!(await client.exists(WEBDAV_REMOTE_IMAGES_DIR))) return []
-      const entries = await client.getDirectoryContents(WEBDAV_REMOTE_IMAGES_DIR)
+      if (!(await client.exists(WEBDAV_REMOTE_IMAGES_DIR, { signal: AbortSignal.timeout(20000) }))) return []
+      const entries = await client.getDirectoryContents(WEBDAV_REMOTE_IMAGES_DIR, { signal: AbortSignal.timeout(20000) })
       return (Array.isArray(entries) ? entries : [entries])
         .filter((e: any) => e?.type === 'file')
         .map((e: any) => ({ name: e.basename || path.posix.basename(e.filename || ''), size: e.size ?? 0 }))
@@ -78,11 +89,11 @@ export function createWebDAVAdapter(config: { server: string; username: string; 
     async uploadImage(name: string, buf: Buffer) {
       const client = await getClient()
       await ensureDir(client, WEBDAV_REMOTE_IMAGES_DIR)
-      await client.putFileContents(`${WEBDAV_REMOTE_IMAGES_DIR}/${name}`, buf, { overwrite: true })
+      await client.putFileContents(`${WEBDAV_REMOTE_IMAGES_DIR}/${name}`, buf, { overwrite: true, signal: AbortSignal.timeout(20000) })
     },
     async downloadImage(name: string): Promise<Buffer> {
       const client = await getClient()
-      const binary = await client.getFileContents(`${WEBDAV_REMOTE_IMAGES_DIR}/${name}`, { format: 'binary' })
+      const binary = await client.getFileContents(`${WEBDAV_REMOTE_IMAGES_DIR}/${name}`, { format: 'binary', signal: AbortSignal.timeout(20000) })
       return toBinaryBuffer(binary)
     },
   }

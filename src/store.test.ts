@@ -455,3 +455,50 @@ describe('方向键微移分区带动成员卡片（#4）', () => {
     expect({ x: c1.x, y: c1.y }).toEqual({ x: 15, y: 17 })  // 只 +5,+7，不是 +10,+14
   })
 })
+
+describe('local save and deferred cloud sync', () => {
+  beforeEach(async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('window', { electronAPI: {
+      writeData: vi.fn(async () => true),
+      readData: vi.fn(async () => ({ canvases: [{ id: 'sync-test', name: 'test', cards: [] }], activeCanvasId: 'sync-test' })),
+      syncAuto: vi.fn(async () => ({ success: true })),
+    } })
+    useStore.setState({ settings: { theme: 'light', syncProvider: 'webdav' }, syncStatus: 'idle', syncDecision: null })
+    await useStore.getState().flushPendingSave()
+    await useStore.getState().loadData()
+    useStore.getState().setSyncStatus('idle')
+    vi.mocked(window.electronAPI.writeData).mockClear()
+  })
+  afterEach(() => { vi.clearAllTimers(); vi.useRealTimers(); vi.unstubAllGlobals() })
+
+  it('saves view movement locally without pending cloud work or an upload timer', async () => {
+    useStore.getState().saveViewport('sync-test', { panX: 5, panY: 6, scale: 1.2 })
+    await vi.advanceTimersByTimeAsync(600)
+    expect(window.electronAPI.writeData).toHaveBeenCalledOnce()
+    expect(useStore.getState().syncStatus).toBe('idle')
+    await vi.advanceTimersByTimeAsync(600000)
+    expect(window.electronAPI.syncAuto).not.toHaveBeenCalled()
+  })
+
+  it('continuous edits still reach disk and remain pending without per-edit cloud requests', async () => {
+    for (let i = 0; i < 20; i++) {
+      useStore.getState().upsertJournalEntry('2026-11-08', { content: `edit ${i}` })
+      await vi.advanceTimersByTimeAsync(100)
+    }
+    expect(vi.mocked(window.electronAPI.writeData).mock.calls.length).toBeGreaterThanOrEqual(3)
+    expect(useStore.getState().syncStatus).toBe('pending')
+    await vi.advanceTimersByTimeAsync(600)
+    const latest = vi.mocked(window.electronAPI.writeData).mock.calls.at(-1)![0]
+    expect(latest.journal?.entriesByDate['2026-11-08'].content).toBe('edit 19')
+    expect(window.electronAPI.syncAuto).not.toHaveBeenCalled()
+  })
+
+  it('flushPendingSave includes the journal and reports local disk failure', async () => {
+    useStore.getState().upsertJournalEntry('2026-11-08', { content: 'closing' })
+    await useStore.getState().flushPendingSave()
+    expect(window.electronAPI.writeData).toHaveBeenCalledWith(expect.objectContaining({ journal: expect.anything() }))
+    vi.mocked(window.electronAPI.writeData).mockResolvedValueOnce(false)
+    await expect(useStore.getState().flushPendingSave()).rejects.toThrow('本地保存失败')
+  })
+})

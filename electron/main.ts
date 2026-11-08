@@ -16,6 +16,9 @@ import type { RemoteAdapter, LocalStore } from './sync/types'
 import type { AppData, InstantCardSave, InstantModeTarget } from '../src/types'
 import { applyInstantCardSave, findInstantNote } from '../src/lib/instantNotes'
 import { mergeAppData } from '../src/lib/mergeData'
+import { getComparableSyncSnapshot } from './sync/summary'
+import { prepareLocalSnapshot } from './sync/local-data'
+import type { SyncResult } from './sync/types'
 import { checkForReleaseUpdate, type UpdateCheckResult } from './updater'
 
 // Development previews never use the user's real notes or settings.
@@ -39,6 +42,60 @@ function getDataPaths() {
 let mainWindow: BrowserWindow | null = null
 let instantWindow: BrowserWindow | null = null
 let isQuitting = false
+let allowMainClose = false
+let closing: Promise<void> | null = null
+let closeRequestId = 0
+const closeSaves = new Map<number, { sender: number; finish: (success: boolean) => void }>()
+
+ipcMain.on('close-save-complete', (event, id: number, success: boolean) => {
+  const pending = closeSaves.get(id)
+  if (pending?.sender === event.sender.id) pending.finish(success === true)
+})
+
+function flushWindow(window: BrowserWindow): Promise<void> {
+  if (window.isDestroyed()) return Promise.resolve()
+  return new Promise((resolve, reject) => {
+    const id = ++closeRequestId
+    const finish = (saved: boolean) => {
+      clearTimeout(timer)
+      closeSaves.delete(id)
+      saved ? resolve() : reject(new Error('本地内容尚未保存，已取消关闭，请重试。'))
+    }
+    const timer = setTimeout(() => finish(false), 5000)
+    closeSaves.set(id, { sender: window.webContents.id, finish })
+    window.webContents.send('close-save-request', id)
+  })
+}
+
+function closeAfterSave(quit: boolean) {
+  if (closing) return
+  const target = mainWindow
+  closing = (async () => {
+    try {
+      // Flush the instant editor first, then merge/flush the main renderer.
+      if (instantWindow && !instantWindow.isDestroyed()) await flushWindow(instantWindow)
+      if (target && !target.isDestroyed()) await flushWindow(target)
+      if (getActiveAdapter() && !lastSyncDecision) {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        try {
+          await Promise.race([
+            enqueueSync(() => runSync()).catch(error => console.warn('Exit sync deferred:', describeSyncError(error))),
+            new Promise<void>(resolve => { timer = setTimeout(resolve, 8000) }),
+          ])
+        } finally { clearTimeout(timer) }
+      }
+      if (quit) { isQuitting = true; app.quit() }
+      else {
+        allowMainClose = true
+        target?.close()
+        if (instantWindow && !instantWindow.isDestroyed()) instantWindow.webContents.send('close-save-cancelled')
+      }
+    } catch (error) {
+      for (const window of BrowserWindow.getAllWindows()) window.webContents.send('close-save-cancelled')
+      await dialog.showMessageBox({ type: 'error', title: '未能保存', message: String(error), buttons: ['返回编辑'] })
+    } finally { closing = null }
+  })()
+}
 let instantTarget: InstantModeTarget | null = null
 let instantEditingCardId: string | null = null
 let allowInstantClose = false
@@ -58,7 +115,10 @@ function readAppData(): AppData | null {
 function writeAppData(data: AppData) {
   ensureDataDir()
   const { dataFile: file } = getDataPaths()
-  fs.writeFileSync(file + '.tmp', JSON.stringify(data, null, 2), 'utf-8')
+  const current = readAppData()
+  const previousMtime = fs.existsSync(file) ? fs.statSync(file).mtimeMs : 0
+  const next = prepareLocalSnapshot(data, current, previousMtime)
+  fs.writeFileSync(file + '.tmp', JSON.stringify(next, null, 2), 'utf-8')
   fs.renameSync(file + '.tmp', file)
 }
 
@@ -363,6 +423,14 @@ function createWindow() {
     mainWindow?.show()
   })
 
+  allowMainClose = false
+  mainWindow.on('close', event => {
+    if (isQuitting || allowMainClose) return
+    event.preventDefault()
+    closeAfterSave(process.platform !== 'darwin')
+  })
+  mainWindow.on('closed', () => { mainWindow = null })
+
   if (process.env.VITE_DEV_SERVER_URL) {
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
   } else {
@@ -544,11 +612,15 @@ ipcMain.handle('write-settings', async (_event, data: unknown) => {
 
 /* ===== Sync ===== */
 
-let syncTimer: ReturnType<typeof setTimeout> | undefined
-
 function getLocalStore(): LocalStore {
   const { dataDir: dir, dataFile: file } = getDataPaths()
+  const settings = readSettingsSync()
+  const provider = settings?.syncProvider ?? (settings?.webdav?.server ? 'webdav' : 'none')
+  const syncIdentity = JSON.stringify(provider === 'github'
+    ? ['github', settings?.github?.repo, settings?.github?.branch || 'main']
+    : [provider, settings?.webdav?.server, settings?.webdav?.username])
   return createNodeLocalStore({
+    syncIdentity,
     dataFile: file,
     imagesDir: path.join(dir, 'images'),
     backupDir: path.join(dir, 'backups'),
@@ -641,20 +713,13 @@ ipcMain.handle('sync-test', async (_e, config: { server: string; username: strin
   return r.ok ? { success: true } : { success: false, error: r.error }
 })
 
-let lastRemoteTag: string | null = null
-
-// 用当前远端标签刷新缓存，使周期同步「远端没变就跳过下载整份快照」的短路生效。
-// 任何同步(上传/下载/解决冲突)后都调用——上传会改变远端 ETag，刷新后下次轮询才不会误判为变更而重下整份。
-async function refreshRemoteTag(adapter: RemoteAdapter): Promise<void> {
-  if (!adapter.getRemoteTag) { lastRemoteTag = null; return }
-  try { lastRemoteTag = await adapter.getRemoteTag() } catch { /* 出错保留旧值 */ }
-}
+let lastSyncDecision: SyncResult | null = null
 
 // 把底层错误映射成精简中文原因，供界面直接展示。
 function describeSyncError(err: any): string {
   const status = err?.status ?? err?.response?.status
   const msg = String(err?.message ?? err ?? '')
-  if (status === 409 || status === 422) return '云端已更新，正在重新同步'
+  if (status === 409 || status === 412 || status === 422) return '云端已更新，请重新同步'
   if (status === 403 || /\b403\b|TrafficRateExhausted/i.test(msg)) {
     return readSettingsSync()?.syncProvider === 'github'
       ? 'GitHub 请求超限或权限不足，请稍后再试'
@@ -673,19 +738,16 @@ function describeSyncError(err: any): string {
 async function runSync() {
   const adapter = getActiveAdapter()
   if (!adapter) return { success: false, error: '未配置同步' }
-  // 先用 ETag 探测远端是否变化；未变则引擎走快路径（本地脏直接上传/干净即最新），跳过整份下载。
-  let remoteUnchanged = false
-  if (adapter.getRemoteTag) {
-    const tag = await adapter.getRemoteTag()
-    remoteUnchanged = !!tag && tag === lastRemoteTag
-  }
-  const result = await reconcileState(adapter, getLocalStore(), { remoteUnchanged })
-  // 远端确实未变且本次没上传 → lastRemoteTag 仍准确，无需再抓；否则(下载/上传/远端变了)刷新缓存。
-  if (!remoteUnchanged || result.action === 'uploaded') {
-    await refreshRemoteTag(adapter)
-  }
+  const result = await reconcileState(adapter, getLocalStore())
+  lastSyncDecision = result.action === 'needs-confirmation' ? result : null
   return result
 }
+
+ipcMain.handle('sync-pending', () => {
+  const store = getLocalStore()
+  const data = store.readSnapshot()
+  return !!data && store.readSyncBaseline()?.fingerprint !== getComparableSyncSnapshot(data)
+})
 
 ipcMain.handle('sync-auto', async () => enqueueSync(async () => {
   try {
@@ -712,7 +774,7 @@ ipcMain.handle('sync-startup', async () => enqueueSync(async () => {
 ipcMain.handle('sync-periodic', async () => {
   // 即刻窗口持有一份独立的渲染态；暂停周期拉取，避免远端下载与正在记录的草稿互相覆盖。
   if (instantWindow && !instantWindow.isDestroyed()) {
-    return { success: true, action: 'up-to-date' as const }
+    return { success: true, pending: true }
   }
   // 与 sync-auto 共用 runSync：远端未变(ETag)时跳过整份下载，仅一个 PROPFIND。
   return enqueueSync(async () => {
@@ -729,7 +791,7 @@ ipcMain.handle('sync-resolve-conflict', async (_e, resolution: 'keep-local' | 'u
     const adapter = getActiveAdapter()
     if (!adapter) return { success: false, error: '未配置同步' }
     const result = await resolveConflict(adapter, getLocalStore(), resolution)
-    await refreshRemoteTag(adapter)
+    lastSyncDecision = result.action === 'needs-confirmation' ? result : null
     if (result.success) mainWindow?.webContents.send('sync-status', { status: 'success' })
     return result
   } catch (err) {
@@ -831,7 +893,7 @@ async function ensureRecentBackupForClear() {
 
   const backupRes = await exportBackupArchive()
   if (!backupRes.success) {
-    return { success: false, error: backupRes.error || '清空前自动备份失败', ...status }
+    return { success: false, error: ('error' in backupRes ? backupRes.error : '') || '清空前自动备份失败', ...status }
   }
 
   return {
@@ -971,7 +1033,7 @@ ipcMain.handle('clear-all-data', async () => {
   try {
     const backupRes = await ensureRecentBackupForClear()
     if (!backupRes.success) {
-      return { success: false, error: backupRes.error || '清空前自动备份失败' }
+      return { success: false, error: ('error' in backupRes ? backupRes.error : '') || '清空前自动备份失败' }
     }
 
     const { dataFile: file } = getDataPaths()
@@ -1113,8 +1175,10 @@ app.on('activate', () => {
   }
 })
 
-app.on('before-quit', () => {
-  isQuitting = true
+app.on('before-quit', event => {
+  if (isQuitting) return
+  event.preventDefault()
+  closeAfterSave(true)
 })
 
 /* ===== GitHub IPC ===== */

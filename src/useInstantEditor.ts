@@ -188,6 +188,12 @@ export function useInstantEditor(loaded: boolean) {
     return () => { live = false; off() }
   }, [loaded, openCard])
 
+  useEffect(() => window.electronAPI.onBeforeClose?.(async () => {
+    document.body.inert = true
+    if (!await flush()) throw new Error('本地保存失败')
+    await useStore.getState().flushPendingSave()
+  }), [flush])
+
   useEffect(() => window.electronAPI.onInstantCloseRequested(() => void leave()), [leave])
   useEffect(() => {
     mounted.current = true

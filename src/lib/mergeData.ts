@@ -33,7 +33,7 @@ function merge(base: unknown, incoming: unknown, current: unknown): unknown {
 export function mergeAppData(base: AppData, incoming: AppData, current: AppData): AppData {
   const viewKeys = ['activeCanvasId', 'activeView', 'boardViewMode', 'journalViewMode', 'journalSelectedDate'] as const
   const b = { ...base }, i = { ...incoming }, c = { ...current }
-  for (const key of [...viewKeys, '_syncTimestamp'] as const) {
+  for (const key of [...viewKeys, '_syncTimestamp', '_contentUpdatedAt'] as const) {
     delete (b as unknown as Record<string, unknown>)[key]
     delete (i as unknown as Record<string, unknown>)[key]
     delete (c as unknown as Record<string, unknown>)[key]
@@ -41,5 +41,6 @@ export function mergeAppData(base: AppData, incoming: AppData, current: AppData)
   const merged = merge(b, i, c) as AppData
   for (const key of viewKeys) (merged as unknown as Record<string, unknown>)[key] = incoming[key] === base[key] ? current[key] : incoming[key]
   if (current._syncTimestamp !== undefined) merged._syncTimestamp = current._syncTimestamp
+  if (current._contentUpdatedAt !== undefined) merged._contentUpdatedAt = current._contentUpdatedAt
   return merged
 }

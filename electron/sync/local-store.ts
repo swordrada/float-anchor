@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import type { AppData } from './summary'
 import { normalizeSyncData } from './summary'
-import type { LocalStore, LocalImage } from './types'
+import type { LocalStore, LocalImage, SyncBaseline } from './types'
 import { IMAGE_EXTENSION_CANDIDATES, getReferencedImageNames } from './image-names'
 
 export function isRealImageFile(filePath: string): boolean {
@@ -26,9 +26,16 @@ export function createNodeLocalStore(opts: {
   imagesDir: string
   backupDir: string
   maxBackups?: number
+  syncIdentity?: string
 }): LocalStore {
   const { dataFile, imagesDir, backupDir } = opts
   const maxBackups = opts.maxBackups ?? 5
+  const baselineFile = dataFile + '.sync-state.json'
+  const atomicWrite = (file: string, data: unknown) => {
+    fs.mkdirSync(path.dirname(file), { recursive: true })
+    fs.writeFileSync(file + '.tmp', JSON.stringify(data, null, 2), 'utf-8')
+    fs.renameSync(file + '.tmp', file)
+  }
 
   function resolveStoredImagePath(fileName: string): string | null {
     const normalizedName = path.basename(fileName)
@@ -52,8 +59,17 @@ export function createNodeLocalStore(opts: {
       }
     },
     writeSnapshot(data: AppData) {
-      if (!fs.existsSync(path.dirname(dataFile))) fs.mkdirSync(path.dirname(dataFile), { recursive: true })
-      fs.writeFileSync(dataFile, JSON.stringify(data, null, 2), 'utf-8')
+      atomicWrite(dataFile, data)
+    },
+    readSyncBaseline(): SyncBaseline | null {
+      try {
+        const saved = JSON.parse(fs.readFileSync(baselineFile, 'utf-8'))
+        if (saved.identity !== (opts.syncIdentity ?? '') || typeof saved.fingerprint !== 'string') return null
+        return saved
+      } catch { return null }
+    },
+    writeSyncBaseline(baseline: SyncBaseline) {
+      atomicWrite(baselineFile, { ...baseline, identity: opts.syncIdentity ?? '' })
     },
     getModifiedAt(): number {
       try {
@@ -80,6 +96,7 @@ export function createNodeLocalStore(opts: {
         while (files.length > maxBackups) fs.unlinkSync(path.join(backupDir, files.shift()!))
       } catch (err) {
         console.error('Backup failed:', err)
+        throw err
       }
     },
     listImages(): LocalImage[] {

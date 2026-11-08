@@ -1,7 +1,8 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { reconcileState, resolveConflict, downloadMissingImages } from './engine'
 import type { RemoteAdapter, LocalStore, RemoteImageEntry } from './types'
-import type { AppData } from './summary'
+import { getComparableSyncSnapshot, type AppData } from './summary'
+import type { SyncBaseline } from './types'
 
 function fakeAdapter(init?: { data?: AppData | null }): RemoteAdapter & { _data: AppData | null } {
   let remote: AppData | null = init?.data ?? null
@@ -19,11 +20,14 @@ function fakeAdapter(init?: { data?: AppData | null }): RemoteAdapter & { _data:
 function memStore(init?: { data?: AppData | null; mtime?: number }): LocalStore {
   let data: AppData | null = init?.data ?? null
   let mtime = init?.mtime ?? 0
+  let baseline: SyncBaseline | null = null
   return {
     readSnapshot() { return data ? JSON.parse(JSON.stringify(data)) : null },
     writeSnapshot(d) { data = JSON.parse(JSON.stringify(d)) },
     getModifiedAt() { return mtime },
     markSynced(ts) { mtime = ts },
+    readSyncBaseline() { return baseline },
+    writeSyncBaseline(value) { baseline = value },
     backup() {},
     listImages() { return [] },
     readImage() { return null },
@@ -66,45 +70,142 @@ describe('reconcileState', () => {
   })
 })
 
-describe('reconcileState — remoteUnchanged 快路径（保存免下载）', () => {
-  function countingAdapter(init?: { data?: AppData | null }): RemoteAdapter & { _data: AppData | null; loadCount: () => number } {
-    let remote: AppData | null = init?.data ?? null
-    let loadCount = 0
-    const a: RemoteAdapter & { _data: AppData | null; loadCount: () => number } = {
-      _data: remote,
-      loadCount: () => loadCount,
-      async test() { return { ok: true } },
-      async loadRemoteSnapshot() { loadCount++; return remote ? { data: remote } : null },
-      async uploadRemoteSnapshot(data) { remote = JSON.parse(JSON.stringify(data)); a._data = remote; return {} },
-      async listRemoteImages(): Promise<RemoteImageEntry[]> { return [] },
-      async uploadImage() {},
-      async downloadImage() { return Buffer.from([]) },
+describe('content-based batched sync', () => {
+  const base = () => ({ ...canvasWith({ cards: [{ id: 'note', content: 'original' }] }), _syncTimestamp: 10000, _contentUpdatedAt: 9000 })
+  const baseline = (store: LocalStore, data: AppData, tag?: string) => store.writeSyncBaseline({
+    fingerprint: getComparableSyncSnapshot(data), syncTimestamp: data._syncTimestamp || 0,
+    contentUpdatedAt: data._contentUpdatedAt, tag,
+  })
+  const changed = (data: AppData, content: string, time = 20000) => ({
+    ...data, _contentUpdatedAt: time, canvases: [{ ...data.canvases[0], cards: [{ id: 'note', content }] }],
+  })
+
+  it('panning, zooming and switching views never upload, even with a newer file mtime', async () => {
+    const remote = base()
+    const local = { ...remote, activeView: 'journal', activeCanvasId: 'other', canvases: [{ ...remote.canvases[0], viewport: { panX: 20, panY: 30, scale: 2 } }] }
+    const store = memStore({ data: local, mtime: 999999 })
+    const adapter = fakeAdapter({ data: remote })
+    adapter.uploadRemoteSnapshot = vi.fn(adapter.uploadRemoteSnapshot)
+    for (let i = 0; i < 3; i++) expect((await reconcileState(adapter, store)).action).toBe('up-to-date')
+    expect(adapter.uploadRemoteSnapshot).not.toHaveBeenCalled()
+    expect(store.readSnapshot()?.canvases[0].viewport).toEqual(local.canvases[0].viewport)
+  })
+
+  it('a verified baseline survives restart and permits only changed content to upload', async () => {
+    const original = base(), store = memStore({ data: changed(original, 'new') })
+    baseline(store, original)
+    const adapter = fakeAdapter({ data: original })
+    expect((await reconcileState(adapter, store)).action).toBe('uploaded')
+    expect(adapter._data?.canvases[0].cards[0].content).toBe('new')
+    expect((await reconcileState(adapter, store)).action).toBe('up-to-date')
+  })
+
+  it('only skips download for a tag belonging to the last agreed content', async () => {
+    const original = base(), store = memStore({ data: original })
+    baseline(store, original, 'etag-1')
+    const adapter = fakeAdapter({ data: original })
+    adapter.getRemoteTag = vi.fn(async () => 'etag-1')
+    adapter.loadRemoteSnapshot = vi.fn(adapter.loadRemoteSnapshot)
+    expect((await reconcileState(adapter, store)).action).toBe('up-to-date')
+    expect(adapter.loadRemoteSnapshot).not.toHaveBeenCalled()
+  })
+
+  it('downloads a remote-only edit with backup while keeping this device viewport', async () => {
+    const original = base(), local = { ...original, canvases: [{ ...original.canvases[0], viewport: { panX: 20 } }] }
+    const store = memStore({ data: local }), remote = changed(original, 'remote edit')
+    baseline(store, original)
+    store.backup = vi.fn()
+    expect((await reconcileState(fakeAdapter({ data: remote }), store)).action).toBe('downloaded')
+    expect(store.readSnapshot()?.canvases[0]).toMatchObject({ viewport: { panX: 20 }, cards: [{ content: 'remote edit' }] })
+    expect(store.backup).toHaveBeenCalledOnce()
+  })
+
+  it('does not upload an externally restored old local backup over the common version', async () => {
+    const original = base(), store = memStore({ data: changed(original, 'old backup', 1000) })
+    baseline(store, original)
+    const adapter = fakeAdapter({ data: original })
+    expect((await reconcileState(adapter, store)).action).toBe('downloaded')
+    expect(adapter._data).toEqual(original)
+  })
+
+  it('repeated checks of simultaneous edits remain conflicts without changing the baseline', async () => {
+    const original = base(), store = memStore({ data: changed(original, 'local') })
+    baseline(store, original)
+    const adapter = fakeAdapter({ data: changed(original, 'remote', 99999999) })
+    for (let i = 0; i < 3; i++) expect((await reconcileState(adapter, store)).action).toBe('needs-confirmation')
+    expect(store.readSyncBaseline()?.fingerprint).toBe(getComparableSyncSnapshot(original))
+    expect(store.readSnapshot()?.canvases[0].cards[0].content).toBe('local')
+    expect(adapter._data?.canvases[0].cards[0].content).toBe('remote')
+  })
+
+  it('an upload in flight cannot overwrite another local edit or mark it synced', async () => {
+    const original = base(), store = memStore({ data: changed(original, 'upload this') })
+    baseline(store, original)
+    const adapter = fakeAdapter({ data: original })
+    const upload = adapter.uploadRemoteSnapshot.bind(adapter)
+    adapter.uploadRemoteSnapshot = async (data, options) => {
+      store.writeSnapshot(changed(original, 'typed while uploading', 30000))
+      return upload(data, options)
     }
-    return a
-  }
-
-  it('远端未变 + 本地脏 → 直接上传，不下载远端', async () => {
-    const store = memStore({ data: { ...canvasWith({ cards: [{}] }), _syncTimestamp: 1 }, mtime: 999999 })
-    const adapter = countingAdapter({ data: { ...canvasWith({ cards: [{}] }), _syncTimestamp: 1 } })
-    const res = await reconcileState(adapter, store, { remoteUnchanged: true })
-    expect(res.action).toBe('uploaded')
-    expect(adapter.loadCount()).toBe(0) // 关键：跳过整份快照下载
-    expect(adapter._data?.canvases[0].cards.length).toBe(1)
+    expect(await reconcileState(adapter, store)).toMatchObject({ action: 'uploaded', pending: true })
+    expect(store.readSnapshot()?.canvases[0].cards[0].content).toBe('typed while uploading')
+    expect(adapter._data?.canvases[0].cards[0].content).toBe('upload this')
+    expect((await reconcileState(adapter, store)).action).toBe('uploaded')
   })
 
-  it('远端未变 + 本地干净 → up-to-date，不下载远端', async () => {
-    const data = { ...canvasWith({ cards: [{}] }), _syncTimestamp: 5 }
-    const adapter = countingAdapter({ data })
-    const res = await reconcileState(adapter, memStore({ data, mtime: 5 }), { remoteUnchanged: true })
-    expect(res.action).toBe('up-to-date')
-    expect(adapter.loadCount()).toBe(0)
+  it('an edit during remote image download prevents overwriting local content', async () => {
+    const original = base(), store = memStore({ data: original })
+    baseline(store, original)
+    const adapter = fakeAdapter({ data: changed(original, 'remote') })
+    store.getMissingImageNames = () => ['a.png']
+    adapter.listRemoteImages = async () => [{ name: 'a.png', size: 1 }]
+    adapter.downloadImage = async () => { store.writeSnapshot(changed(original, 'local while downloading')); return Buffer.from([1]) }
+    expect((await reconcileState(adapter, store)).action).toBe('needs-confirmation')
+    expect(store.readSnapshot()?.canvases[0].cards[0].content).toBe('local while downloading')
   })
 
-  it('未传 remoteUnchanged → 仍走完整 reconcile（会下载一次）', async () => {
-    const data = { ...canvasWith({ cards: [{}] }), _syncTimestamp: 5 }
-    const adapter = countingAdapter({ data })
-    await reconcileState(adapter, memStore({ data, mtime: 5 }))
-    expect(adapter.loadCount()).toBe(1) // 默认行为不变
+  it('daily-journal-only changes are uploaded and are not treated as an empty document', async () => {
+    const data = { ...canvasWith({}), journal: { entriesByDate: { '2026-11-08': { content: 'journal' } } } }
+    const adapter = fakeAdapter(), store = memStore({ data })
+    expect((await reconcileState(adapter, store)).action).toBe('uploaded')
+    expect(adapter._data?.journal).toEqual(data.journal)
+  })
+
+  it('failed uploads leave local data and last agreed baseline intact for restart retry', async () => {
+    const original = base(), local = changed(original, 'offline edit'), store = memStore({ data: local })
+    baseline(store, original)
+    const adapter = fakeAdapter({ data: original })
+    adapter.uploadRemoteSnapshot = async () => { throw new Error('offline') }
+    await expect(reconcileState(adapter, store)).rejects.toThrow('offline')
+    expect(store.readSnapshot()).toEqual(local)
+    expect(store.readSyncBaseline()?.fingerprint).toBe(getComparableSyncSnapshot(original))
+    expect((await reconcileState(fakeAdapter({ data: original }), store)).action).toBe('uploaded')
+  })
+
+  it('passes the observed remote revision to conditional upload', async () => {
+    const original = base(), store = memStore({ data: changed(original, 'local') })
+    baseline(store, original)
+    const adapter = fakeAdapter({ data: original })
+    adapter.loadRemoteSnapshot = async () => ({ data: original, tag: 'etag-read' })
+    adapter.uploadRemoteSnapshot = vi.fn(async () => { throw new Error('412 newer remote') })
+    await expect(reconcileState(adapter, store)).rejects.toThrow('412')
+    expect(adapter.uploadRemoteSnapshot).toHaveBeenCalledWith(expect.anything(), { ifMatch: 'etag-read', createOnly: false })
+    expect(store.readSyncBaseline()?.fingerprint).toBe(getComparableSyncSnapshot(original))
+  })
+
+  it('does not overlook a content edit immediately after the last sync during migration', async () => {
+    const original = base(), store = memStore({ data: changed(original, 'one millisecond later', 10001) })
+    const adapter = fakeAdapter({ data: original })
+    expect((await reconcileState(adapter, store)).action).toBe('uploaded')
+    expect(adapter._data?.canvases[0].cards[0].content).toBe('one millisecond later')
+  })
+
+  it('does not replace local content if the backup cannot be written', async () => {
+    const original = base(), store = memStore({ data: original })
+    baseline(store, original)
+    store.backup = () => { throw new Error('disk full') }
+    await expect(reconcileState(fakeAdapter({ data: changed(original, 'remote') }), store)).rejects.toThrow('disk full')
+    expect(store.readSnapshot()).toEqual(original)
   })
 })
 
@@ -126,6 +227,8 @@ describe('downloadMissingImages — 扩展名容差匹配', () => {
       writeSnapshot() {},
       getModifiedAt() { return 0 },
       markSynced() {},
+      readSyncBaseline() { return null },
+      writeSyncBaseline() {},
       backup() {},
       listImages() { return [] },
       readImage() { return null },

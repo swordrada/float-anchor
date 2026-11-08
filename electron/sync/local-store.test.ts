@@ -19,6 +19,17 @@ beforeEach(() => {
 afterEach(() => { fs.rmSync(dir, { recursive: true, force: true }) })
 
 describe('LocalStore 读写', () => {
+  it('persists the sync baseline across restart and isolates different remotes', () => {
+    const baseline = { fingerprint: 'hash', contentUpdatedAt: 10, syncTimestamp: 20, tag: 'etag' }
+    store.writeSyncBaseline(baseline)
+    const options = { dataFile: path.join(dir, 'float-anchor.json'), imagesDir: path.join(dir, 'images'), backupDir: path.join(dir, 'backups') }
+    expect(createNodeLocalStore(options).readSyncBaseline()).toMatchObject(baseline)
+    expect(createNodeLocalStore({ ...options, syncIdentity: 'another-remote' }).readSyncBaseline()).toBeNull()
+  })
+  it('commits snapshot atomically without leaving temporary files', () => {
+    store.writeSnapshot({ canvases: [], activeCanvasId: null })
+    expect(fs.existsSync(path.join(dir, 'float-anchor.json.tmp'))).toBe(false)
+  })
   it('写入后能读回并归一化', () => {
     store.writeSnapshot({ canvases: [{ id: 'c1', cards: [] }], activeCanvasId: 'c1', _syncTimestamp: 9 })
     const back = store.readSnapshot()

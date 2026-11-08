@@ -5,7 +5,7 @@ export interface RemoteImageEntry { name: string; size: number }
 export interface RemoteAdapter {
   test(): Promise<{ ok: boolean; error?: string }>
   loadRemoteSnapshot(): Promise<{ data: AppData; tag?: string } | null>
-  uploadRemoteSnapshot(data: AppData, opts?: { ifMatch?: string }): Promise<{ tag?: string }>
+  uploadRemoteSnapshot(data: AppData, opts?: { ifMatch?: string; createOnly?: boolean }): Promise<{ tag?: string }>
   getRemoteTag?(): Promise<string | null>
   listRemoteImages(): Promise<RemoteImageEntry[]>
   uploadImage(name: string, buf: Buffer): Promise<void>
@@ -14,11 +14,20 @@ export interface RemoteAdapter {
 
 export interface LocalImage { name: string; size: number }
 
+export interface SyncBaseline {
+  fingerprint: string
+  contentUpdatedAt: number
+  syncTimestamp: number
+  tag?: string
+}
+
 export interface LocalStore {
   readSnapshot(): AppData | null
   writeSnapshot(data: AppData): void
   getModifiedAt(): number
   markSynced(syncTimestamp: number): void
+  readSyncBaseline(): SyncBaseline | null
+  writeSyncBaseline(baseline: SyncBaseline): void
   backup(): void
   listImages(): LocalImage[]
   readImage(name: string): Buffer | null
@@ -33,4 +42,5 @@ export interface SyncResult {
   data?: AppData | null
   decision?: SyncDecision
   error?: string
+  pending?: boolean
 }

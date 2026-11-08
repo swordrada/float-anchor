@@ -6,12 +6,12 @@ import BoardOverviewView from './components/BoardOverviewView'
 import DailyJournalView from './components/DailyJournalView'
 import SettingsModal from './components/SettingsModal'
 import SearchModal from './components/SearchModal'
+import { REMOTE_SYNC_INTERVAL_MS } from './lib/syncData'
 import type { WebDAVSyncResult } from './types'
 
 const SIDEBAR_MIN = 180
 const SIDEBAR_MAX = 400
 const SIDEBAR_DEFAULT = 228
-const BACKGROUND_SYNC_INTERVAL_MS = 30000
 
 export default function App() {
   const { loaded, loadData, loadSettings } = useStore()
@@ -45,6 +45,13 @@ export default function App() {
     document.addEventListener('keydown', onKeyDown, true)
     return () => document.removeEventListener('keydown', onKeyDown, true)
   }, [openSearch])
+
+  useEffect(() => window.electronAPI.onBeforeClose?.(async () => {
+    document.body.inert = true
+    ;(document.activeElement as HTMLElement | null)?.blur?.()
+    window.dispatchEvent(new Event('fa-before-save'))
+    await useStore.getState().flushPendingSave()
+  }), [])
 
   const onResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -100,9 +107,14 @@ export default function App() {
     store.setSyncDecision(null)
 
     if (res.action === 'downloaded' && res.data) {
+      ;(document.activeElement as HTMLElement | null)?.blur?.()
+      window.dispatchEvent(new Event('fa-before-reload'))
+      await store.flushPendingSave()
       await store.loadData()
       store.refreshImageCache()
     }
+
+    if (res.pending || await window.electronAPI.getSyncPending?.()) { store.setSyncStatus('pending'); return }
 
     if (res.action === 'uploaded' || res.action === 'downloaded') {
       markSyncSuccess()
@@ -127,6 +139,7 @@ export default function App() {
       if (getEffectiveProvider(settings) === 'none') return
 
       try {
+        await useStore.getState().flushPendingSave()
         useStore.getState().setSyncStatus('syncing')
         const res = await window.electronAPI.syncStartup()
         if (disposed) return
@@ -150,6 +163,8 @@ export default function App() {
     if (useStore.getState().syncDecision) return
     backgroundSyncingRef.current = true
     try {
+      window.dispatchEvent(new Event('fa-before-save'))
+      await useStore.getState().flushPendingSave()
       const res = await window.electronAPI.syncPeriodic()
       await applySyncResult(res, { openSettingsOnDecision: true })
     } catch {
@@ -163,7 +178,7 @@ export default function App() {
     if (syncProvider === 'none' || syncDecision) return
     const timer = window.setInterval(() => {
       void runBackgroundSync()
-    }, BACKGROUND_SYNC_INTERVAL_MS)
+    }, REMOTE_SYNC_INTERVAL_MS)
     return () => window.clearInterval(timer)
   }, [runBackgroundSync, syncDecision, syncProvider])
 

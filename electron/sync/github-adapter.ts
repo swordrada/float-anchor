@@ -25,7 +25,7 @@ export function createGitHubAdapter(config: GitHubConfig): Required<RemoteAdapte
   const shaCache = new Map<string, string>()
 
   async function ghFetch(url: string, init: RequestInit = {}, retry = true): Promise<Response> {
-    const resp = await fetch(url, { ...init, headers: { ...authHeaders(config.token), ...(init.headers || {}) } })
+    const resp = await fetch(url, { ...init, signal: init.signal ?? AbortSignal.timeout(20000), headers: { ...authHeaders(config.token), ...(init.headers || {}) } })
     // 速率受限(remaining=0)退避一次
     if ((resp.status === 403 || resp.status === 429) && retry && resp.headers.get('X-RateLimit-Remaining') === '0') {
       const reset = Number(resp.headers.get('X-RateLimit-Reset') || '0') * 1000

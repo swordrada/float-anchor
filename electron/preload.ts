@@ -9,6 +9,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
   winMinimize: () => ipcRenderer.send('win-minimize'),
   winMaximize: () => ipcRenderer.send('win-maximize'),
   winClose: () => ipcRenderer.send('win-close'),
+  onBeforeClose: (cb: () => Promise<void>) => {
+    const cancel = () => { document.body.inert = false }
+    const handler = async (_e: unknown, requestId: number) => {
+      try {
+        await cb()
+        ipcRenderer.send('close-save-complete', requestId, true)
+      } catch {
+        cancel()
+        ipcRenderer.send('close-save-complete', requestId, false)
+      }
+    }
+    ipcRenderer.on('close-save-request', handler)
+    ipcRenderer.on('close-save-cancelled', cancel)
+    return () => {
+      ipcRenderer.removeListener('close-save-request', handler)
+      ipcRenderer.removeListener('close-save-cancelled', cancel)
+    }
+  },
   openInstantMode: (cardId?: string) => ipcRenderer.invoke('instant-mode-open', cardId),
   getInstantTarget: () => ipcRenderer.invoke('instant-mode-target'),
   onInstantTarget: (cb: (target: any) => void) => {
@@ -63,6 +81,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkUpdate: () => ipcRenderer.invoke('check-update'),
   syncTest: (config: any) => ipcRenderer.invoke('sync-test', config),
   syncAuto: () => ipcRenderer.invoke('sync-auto'),
+  getSyncPending: () => ipcRenderer.invoke('sync-pending'),
   syncStartup: () => ipcRenderer.invoke('sync-startup'),
   syncPeriodic: () => ipcRenderer.invoke('sync-periodic'),
   syncResolveConflict: (resolution: 'keep-local' | 'use-remote') =>

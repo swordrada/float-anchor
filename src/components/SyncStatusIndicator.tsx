@@ -2,7 +2,7 @@ import { useStore, getEffectiveProvider } from '../store'
 
 const META: Record<string, { dot: string; label: string }> = {
   idle:    { dot: 'connected', label: '已同步' },
-  pending: { dot: 'pending',   label: '待同步' },
+  pending: { dot: 'pending',   label: '已保存·待同步' },
   syncing: { dot: 'syncing',   label: '同步中' },
   success: { dot: 'connected', label: '已同步' },
   error:   { dot: 'error',     label: '同步失败' },
@@ -23,7 +23,7 @@ export default function SyncStatusIndicator() {
   return (
     <button
       className={`sync-indicator${clickable ? ' clickable' : ''}${isError ? ' error' : ''}`}
-      title={isError ? (syncError || '同步失败') : `同步状态：${meta.label}`}
+      title={isError ? (syncError || '同步失败') : (syncStatus === 'pending' ? '已保存到本机，每 5 分钟同步到云端；正常关闭时也会尝试同步。' : `同步状态：${meta.label}`)}
       onClick={clickable ? () => useStore.getState().setShowSettings(true) : undefined}
       disabled={!clickable}
     >

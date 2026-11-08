@@ -1,5 +1,29 @@
 # 版本公告
 
+## v1.0.24
+
+发布日期：2026-11-08。
+
+### 更新内容
+
+- **减少坚果云更新通知**：编辑先快速保存到本机，WebDAV / GitHub 改为每 5 分钟批量同步，取消每次编辑后的实时上传；手动同步仍立即执行。
+- **视图只在本机保存**：平移、缩放、切换白板或页面不再被当作内容变更，不会因此上传整份 `float-anchor.json`。
+- **正常退出时补同步**：先保存主窗口和即刻窗口的未完成编辑，再限时尝试同步；离线时保留本地内容，下次启动自动核对并重试。
+- **避免新旧内容互相覆盖**：持久保存上次共同版本，自动同步单边改动；双方都修改过或大量内容将被覆盖时继续要求确认。外部恢复的旧本地备份不会自动覆盖较新的共同版本。
+- **完善数据保护**：每日记纳入同步比较；修复上传期间的新编辑可能被旧快照覆盖的问题；远端写入增加版本校验，遇到并发修改停止覆盖。
+
+### 下载与升级
+
+| 平台 | 安装包 |
+|------|--------|
+| macOS · Apple Silicon（M 系列） | [FloatAnchor-1.0.24-mac-arm64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.24/FloatAnchor-1.0.24-mac-arm64.dmg) |
+| macOS · Intel | [FloatAnchor-1.0.24-mac-x64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.24/FloatAnchor-1.0.24-mac-x64.dmg) |
+| Windows · 64 位（x64） | [FloatAnchor-1.0.24-win-setup.exe](https://github.com/swordrada/float-anchor/releases/download/v1.0.24/FloatAnchor-1.0.24-win-setup.exe) |
+
+建议各设备一起升级。首次升级若发现无法确定来源的历史差异，仍会提示确认；不会仅凭电脑时间自动覆盖。强制结束进程时，刚输入且尚未落盘的最后约一秒内容仍可能丢失，正常关闭会主动等待保存完成。
+
+[GitHub Release](https://github.com/swordrada/float-anchor/releases/tag/v1.0.24) · [同步机制](https://github.com/swordrada/float-anchor/blob/main/SYNC.md)
+
 ## v1.0.23
 
 首次发布：2026-11-07；macOS / Windows 完整发布：2026-11-08。

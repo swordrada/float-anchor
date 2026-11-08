@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto'
+import { contentFingerprint } from '../../src/lib/syncData'
+
 export interface AppData {
   canvases: any[]
   activeCanvasId: string | null
@@ -12,6 +15,7 @@ export interface SyncSummary {
   sectionCount: number
   connectionCount: number
   textCount: number
+  journalEntryCount: number
   totalEntityCount: number
 }
 
@@ -47,6 +51,7 @@ export function summarizeSyncData(data: any): SyncSummary {
   const sectionCount = canvases.reduce((s: number, c: any) => s + (c.sections?.length || 0), 0)
   const connectionCount = canvases.reduce((s: number, c: any) => s + (c.connections?.length || 0), 0)
   const textCount = canvases.reduce((s: number, c: any) => s + (c.texts?.length || 0), 0)
+  const journalEntryCount = Object.keys(normalized.journal?.entriesByDate ?? {}).length
   return {
     canvasCount: canvases.length,
     cardCount,
@@ -54,7 +59,8 @@ export function summarizeSyncData(data: any): SyncSummary {
     sectionCount,
     connectionCount,
     textCount,
-    totalEntityCount: cardCount + labelCount + sectionCount + connectionCount + textCount,
+    journalEntryCount,
+    totalEntityCount: cardCount + labelCount + sectionCount + connectionCount + textCount + journalEntryCount,
   }
 }
 
@@ -63,15 +69,11 @@ export function hasMeaningfulSyncData(summary: SyncSummary): boolean {
 }
 
 export function getComparableSyncSnapshot(data: any): string {
-  const normalized = normalizeSyncData(data)
-  return JSON.stringify({
-    canvases: normalized.canvases,
-    activeCanvasId: normalized.activeCanvasId,
-  })
+  return createHash('sha256').update(contentFingerprint(data)).digest('hex')
 }
 
 export function formatSyncSummary(summary: SyncSummary): string {
-  return `${summary.canvasCount} 个画布、${summary.cardCount} 张卡片、${summary.labelCount} 个标题、${summary.sectionCount} 个分区、${summary.connectionCount} 条连线、${summary.textCount} 个文本框`
+  return `${summary.canvasCount} 个画布、${summary.cardCount} 张卡片、${summary.labelCount} 个标题、${summary.sectionCount} 个分区、${summary.connectionCount} 条连线、${summary.textCount} 个文本框、${summary.journalEntryCount} 篇每日记`
 }
 
 export function isHighRiskRemoteOverwrite(localSummary: SyncSummary, remoteSummary: SyncSummary): boolean {

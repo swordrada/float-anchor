@@ -1,3 +1,4 @@
+import { contentFingerprint } from './lib/syncData'
 import { create } from 'zustand'
 import { shallow } from 'zustand/shallow'
 import { v4 as uuid } from 'uuid'
@@ -290,12 +291,9 @@ interface AppState {
 }
 
 let saveTimer: ReturnType<typeof setTimeout> | undefined
-let syncTimer: ReturnType<typeof setTimeout> | undefined
-let lastRemoteUploadAt = 0
+let lastPersistedContent = ''
 
 const SECTION_COLORS = ['#9ca3af', '#60a5fa', '#34d399', '#fb923c', '#f472b6']
-const LOCAL_WEBDAV_SYNC_DELAY_MS = 2000
-const MIN_REMOTE_UPLOAD_INTERVAL_MS = 30000
 
 function normalizeJournal(raw: unknown): JournalData {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { entriesByDate: {} }
@@ -340,6 +338,7 @@ export const useStore = create<AppState>((set, get) => ({
     try {
       const data = await window.electronAPI.readData()
       if (data && data.canvases.length > 0) {
+        lastPersistedContent = contentFingerprint(data)
         let needsPersist = false
         const cleaned = data.canvases.map((canvas) => {
           const sections = canvas.sections
@@ -377,62 +376,27 @@ export const useStore = create<AppState>((set, get) => ({
   },
 
   persist: () => {
-    clearTimeout(saveTimer)
+    if (saveTimer) return
     saveTimer = setTimeout(() => {
+      saveTimer = undefined
       const { canvases, activeCanvasId, boardViewMode, activeView, journal, journalViewMode, journalSelectedDate } = get()
       void window.electronAPI.writeData({ canvases, activeCanvasId, boardViewMode, activeView, journal, journalViewMode, journalSelectedDate }).then((saved) => {
         if (!saved) {
           set({ syncStatus: 'error', syncError: '本地保存失败或内容已在其他窗口更新，当前编辑已保留。' })
           return
         }
-        get().scheduleAutoSync()
+        const fingerprint = contentFingerprint({ canvases, journal })
+        if (fingerprint !== lastPersistedContent) get().scheduleAutoSync()
+        lastPersistedContent = fingerprint
       }).catch(() => set({ syncStatus: 'error', syncError: '本地保存失败，当前编辑已保留。' }))
     }, 600)
   },
 
+  // Cloud work runs on a fixed five-minute cadence, not once per save.
   scheduleAutoSync: () => {
     const { settings, syncDecision } = get()
     if (getEffectiveProvider(settings) !== 'none' && !syncDecision) {
       set({ syncStatus: 'pending', syncError: null })
-      clearTimeout(syncTimer)
-      const sinceLast = Date.now() - lastRemoteUploadAt
-      const delay = Math.max(LOCAL_WEBDAV_SYNC_DELAY_MS, MIN_REMOTE_UPLOAD_INTERVAL_MS - sinceLast)
-      syncTimer = setTimeout(() => {
-        set({ syncStatus: 'syncing', syncError: null })
-        window.electronAPI.syncAuto().then(async (res) => {
-          if (!res.success) {
-            // 失败时不更新 lastRemoteUploadAt，使下次编辑可较快重试（delay 退化为 2s）
-            set({ syncStatus: 'error', syncError: res.error ?? '同步失败' })
-            return
-          }
-          if (res.action === 'needs-confirmation' && res.decision) {
-            set({
-              syncStatus: 'warning',
-              syncDecision: res.decision,
-              showSettings: true,
-            })
-            return
-          }
-          if (res.action === 'downloaded' && res.data) {
-            await get().loadData()
-            get().refreshImageCache()
-          }
-          if (res.action === 'uploaded' || res.action === 'downloaded' || res.action === 'up-to-date') {
-            // 仅成功路径才更新节流时间戳
-            lastRemoteUploadAt = Date.now()
-            if (res.action !== 'up-to-date') {
-              set({ syncStatus: 'success', syncDecision: null })
-              setTimeout(() => {
-                if (get().syncStatus === 'success') set({ syncStatus: 'idle' })
-              }, 3000)
-            } else {
-              set({ syncStatus: 'idle', syncDecision: null })
-            }
-            return
-          }
-          set({ syncStatus: 'idle', syncDecision: null })
-        }).catch(() => set({ syncStatus: 'error', syncError: '同步失败' }))
-      }, delay)
     }
   },
 
@@ -477,9 +441,13 @@ export const useStore = create<AppState>((set, get) => ({
 
   flushPendingSave: async () => {
     clearTimeout(saveTimer)
+    saveTimer = undefined
     const { canvases, activeCanvasId, boardViewMode, activeView, journal, journalViewMode, journalSelectedDate } = get()
     const saved = await window.electronAPI.writeData({ canvases, activeCanvasId, boardViewMode, activeView, journal, journalViewMode, journalSelectedDate })
     if (!saved) throw new Error('本地保存失败，请保留编辑内容后重试。')
+    const fingerprint = contentFingerprint({ canvases, journal })
+    if (fingerprint !== lastPersistedContent) get().scheduleAutoSync()
+    lastPersistedContent = fingerprint
   },
 
   addCanvas: (name) => {

@@ -5,6 +5,7 @@ import {
   isHighRiskRemoteOverwrite, buildSyncDecision,
 } from './summary'
 import type { RemoteAdapter, LocalStore, SyncResult } from './types'
+import { syncContent, preserveLocalView } from '../../src/lib/syncData'
 import { isRemoteImageNameMatch, getImageBasename } from './image-names'
 
 export const LOCAL_SYNC_DIRTY_TOLERANCE_MS = 1500
@@ -43,127 +44,126 @@ export async function downloadMissingImages(adapter: RemoteAdapter, store: Local
   return n
 }
 
-async function uploadSnapshot(adapter: RemoteAdapter, store: LocalStore): Promise<AppData> {
+function contentTime(data: AppData | null): number {
+  return data?._contentUpdatedAt ?? data?._syncTimestamp ?? 0
+}
+
+function acknowledge(store: LocalStore, data: AppData, tag?: string) {
+  store.writeSyncBaseline({
+    fingerprint: getComparableSyncSnapshot(data),
+    contentUpdatedAt: contentTime(data),
+    syncTimestamp: data._syncTimestamp || 0,
+    tag,
+  })
+  // Network I/O may have overlapped another local save. Never write an old
+  // uploaded snapshot back over newer edits (including local view preferences).
+  const current = store.readSnapshot()
+  if (current && getComparableSyncSnapshot(current) === getComparableSyncSnapshot(data)) {
+    store.writeSnapshot({ ...current, _syncTimestamp: data._syncTimestamp, _contentUpdatedAt: contentTime(data) })
+    store.markSynced(data._syncTimestamp || 0)
+  }
+}
+
+async function uploadSnapshot(adapter: RemoteAdapter, store: LocalStore, remote: { data: AppData; tag?: string } | null): Promise<SyncResult> {
   const local = store.readSnapshot()
-  const data = normalizeSyncData(local, 0)
-  data._syncTimestamp = Date.now()
+  if (!local) return { success: false, error: '没有找到本地数据文件' }
+  const data: AppData = {
+    ...syncContent(local),
+    activeCanvasId: local.canvases[0]?.id ?? null,
+    _contentUpdatedAt: contentTime(local) || store.getModifiedAt(),
+    _syncTimestamp: Math.max(Date.now(), (remote?.data._syncTimestamp || 0) + 1),
+  }
   await uploadImagesDiff(adapter, store)
-  await adapter.uploadRemoteSnapshot(data)
-  store.writeSnapshot(data)
-  store.markSynced(data._syncTimestamp)
-  return data
+  const uploaded = await adapter.uploadRemoteSnapshot(data, { ifMatch: remote?.tag, createOnly: !remote })
+  acknowledge(store, data, uploaded.tag)
+  const pending = getComparableSyncSnapshot(store.readSnapshot()) !== getComparableSyncSnapshot(data)
+  return { success: true, action: 'uploaded', pending }
 }
 
-async function applyRemote(adapter: RemoteAdapter, store: LocalStore, remoteData: any): Promise<AppData> {
-  const normalized = normalizeSyncData(remoteData, Date.now())
-  store.backup()
-  store.writeSnapshot(normalized)
-  store.markSynced(normalized._syncTimestamp || 0)
+async function applyRemote(adapter: RemoteAdapter, store: LocalStore, remote: { data: AppData; tag?: string }, expected: AppData | null): Promise<SyncResult> {
+  const normalized = normalizeSyncData(remote.data)
   await downloadMissingImages(adapter, store, normalized)
-  return normalized
+  const current = store.readSnapshot()
+  // A user may still be typing while the network is slow. Preserve those edits.
+  if (getComparableSyncSnapshot(current) !== getComparableSyncSnapshot(expected)) {
+    return { success: true, action: 'needs-confirmation', decision: buildSyncDecision(current, normalized, 'diverged') }
+  }
+  store.backup()
+  const applied = preserveLocalView(normalized, current)
+  store.writeSnapshot(applied)
+  acknowledge(store, applied, remote.tag)
+  return { success: true, action: 'downloaded', data: applied }
 }
 
-export async function reconcileState(
-  adapter: RemoteAdapter,
-  store: LocalStore,
-  opts?: { remoteUnchanged?: boolean },
-): Promise<SyncResult> {
-  const localData = store.readSnapshot()
-  const localTs = localData?._syncTimestamp || 0
-  const localModifiedAt = store.getModifiedAt()
-  const localDirty = !!localData && localModifiedAt > localTs + LOCAL_SYNC_DIRTY_TOLERANCE_MS
-
-  // 调用方已用 ETag/Last-Modified 确认远端自上次同步以来未变 → 跳过下载整份快照。
-  // 远端 == 我们上次同步的状态，故本地脏即"本地领先"，直接上传无冲突；本地干净即已是最新。
-  // 代价：无法下载远端做内容指纹比对，本地脏但内容恰好相同时会多上传一次（最坏与旧版下载等价，永不更差）。
-  if (opts?.remoteUnchanged && localData) {
-    if (localDirty) {
-      await uploadSnapshot(adapter, store)
-      return { success: true, action: 'uploaded' }
+export async function reconcileState(adapter: RemoteAdapter, store: LocalStore): Promise<SyncResult> {
+  const initial = store.readSnapshot()
+  const baseline = store.readSyncBaseline()
+  // A cached tag is only useful together with the content it actually described.
+  // Unknown tags are never used as a shortcut after a conflict or a restart.
+  if (baseline?.tag && adapter.getRemoteTag && initial
+      && baseline.fingerprint === getComparableSyncSnapshot(initial)
+      && store.getMissingImageNames(initial).length === 0) {
+    if (await adapter.getRemoteTag() === baseline.tag) return {
+      success: true, action: 'up-to-date',
+      pending: getComparableSyncSnapshot(store.readSnapshot()) !== baseline.fingerprint,
     }
-    return { success: true, action: 'up-to-date' }
   }
-
-  const localSummary = summarizeSyncData(localData)
-  const localFingerprint = localData ? getComparableSyncSnapshot(localData) : ''
   const remote = await adapter.loadRemoteSnapshot()
+  // Re-read after network I/O, not before it.
+  const localData = store.readSnapshot()
+  const localSummary = summarizeSyncData(localData)
   if (!remote) {
-    if (localData && hasMeaningfulSyncData(localSummary)) {
-      await uploadSnapshot(adapter, store)
-      return { success: true, action: 'uploaded' }
-    }
+    if (localData && hasMeaningfulSyncData(localSummary)) return uploadSnapshot(adapter, store, null)
     return { success: true, action: 'up-to-date' }
   }
-
   const remoteData = remote.data
-  const remoteTs = remoteData._syncTimestamp || 0
   const remoteSummary = summarizeSyncData(remoteData)
+  const localFingerprint = getComparableSyncSnapshot(localData)
   const remoteFingerprint = getComparableSyncSnapshot(remoteData)
-  const localMissingDownloaded = localData ? await downloadMissingImages(adapter, store, localData) : 0
-
-  if (!localData) {
-    if (hasMeaningfulSyncData(remoteSummary)) {
-      const applied = await applyRemote(adapter, store, remoteData)
-      return { success: true, action: 'downloaded', data: applied }
-    }
-    return { success: true, action: 'up-to-date' }
-  }
+  if (!localData) return applyRemote(adapter, store, remote, null)
 
   if (localFingerprint === remoteFingerprint) {
-    if (localMissingDownloaded > 0) return { success: true, action: 'downloaded', data: localData }
-    return { success: true, action: 'up-to-date' }
+    const downloaded = await downloadMissingImages(adapter, store, localData)
+    acknowledge(store, remoteData, remote.tag)
+    const pending = getComparableSyncSnapshot(store.readSnapshot()) !== remoteFingerprint
+    return { success: true, action: downloaded ? 'downloaded' : 'up-to-date', data: downloaded ? store.readSnapshot() : undefined, pending }
   }
 
-  if (localDirty) {
-    if (remoteTs > localTs + LOCAL_SYNC_DIRTY_TOLERANCE_MS) {
-      return { success: true, action: 'needs-confirmation', decision: buildSyncDecision(localData, remoteData, 'diverged') }
+  const confirm = (reason: 'diverged' | 'destructive-remote') => ({
+    success: true, action: 'needs-confirmation' as const,
+    decision: buildSyncDecision(localData, remoteData, reason),
+  })
+  const download = () => isHighRiskRemoteOverwrite(localSummary, remoteSummary)
+    ? Promise.resolve(confirm('destructive-remote'))
+    : applyRemote(adapter, store, remote, localData)
+
+  if (baseline) {
+    const localChanged = localFingerprint !== baseline.fingerprint
+    const remoteChanged = remoteFingerprint !== baseline.fingerprint
+    if (!localChanged) return download()
+    if (contentTime(localData) < baseline.contentUpdatedAt) return download()
+    if (!remoteChanged) {
+      return uploadSnapshot(adapter, store, remote)
     }
-    await uploadSnapshot(adapter, store)
-    return { success: true, action: 'uploaded' }
+    return confirm('diverged')
   }
 
-  if (localTs > remoteTs + LOCAL_SYNC_DIRTY_TOLERANCE_MS) {
-    await uploadSnapshot(adapter, store)
-    return { success: true, action: 'uploaded' }
-  }
-
-  if (remoteTs > localTs + LOCAL_SYNC_DIRTY_TOLERANCE_MS) {
-    if (!hasMeaningfulSyncData(localSummary) && hasMeaningfulSyncData(remoteSummary)) {
-      const applied = await applyRemote(adapter, store, remoteData)
-      return { success: true, action: 'downloaded', data: applied }
-    }
-    return {
-      success: true,
-      action: 'needs-confirmation',
-      decision: buildSyncDecision(localData, remoteData, isHighRiskRemoteOverwrite(localSummary, remoteSummary) ? 'destructive-remote' : 'remote-newer'),
-    }
-  }
-
-  if (!hasMeaningfulSyncData(localSummary) && hasMeaningfulSyncData(remoteSummary)) {
-    const applied = await applyRemote(adapter, store, remoteData)
-    return { success: true, action: 'downloaded', data: applied }
-  }
-
-  if (hasMeaningfulSyncData(localSummary) && !hasMeaningfulSyncData(remoteSummary)) {
-    await uploadSnapshot(adapter, store)
-    return { success: true, action: 'uploaded' }
-  }
-
-  return {
-    success: true,
-    action: 'needs-confirmation',
-    decision: buildSyncDecision(localData, remoteData, isHighRiskRemoteOverwrite(localSummary, remoteSummary) ? 'destructive-remote' : 'diverged'),
-  }
+  // Upgrade path for legacy snapshots without a saved common ancestor. Keep
+  // ambiguous simultaneous changes for review instead of last-writer-wins.
+  const localTs = localData._syncTimestamp || 0
+  const remoteTs = remoteData._syncTimestamp || 0
+  const localModified = localData._contentUpdatedAt ?? store.getModifiedAt()
+  const localDirty = localModified > localTs + (localData._contentUpdatedAt === undefined ? LOCAL_SYNC_DIRTY_TOLERANCE_MS : 0)
+  if (!hasMeaningfulSyncData(localSummary) && hasMeaningfulSyncData(remoteSummary) && !localTs) return download()
+  if (localDirty && remoteTs > localTs + LOCAL_SYNC_DIRTY_TOLERANCE_MS) return confirm('diverged')
+  if (localDirty || localTs > remoteTs + LOCAL_SYNC_DIRTY_TOLERANCE_MS) return uploadSnapshot(adapter, store, remote)
+  if (remoteTs > localTs + LOCAL_SYNC_DIRTY_TOLERANCE_MS) return download()
+  return confirm('diverged')
 }
 
 export async function resolveConflict(adapter: RemoteAdapter, store: LocalStore, resolution: SyncResolution): Promise<SyncResult> {
-  if (resolution === 'keep-local') {
-    if (!store.readSnapshot()) return { success: false, error: '没有找到本地数据文件' }
-    const uploaded = await uploadSnapshot(adapter, store)
-    return { success: true, action: 'uploaded', data: uploaded }
-  }
   const remote = await adapter.loadRemoteSnapshot()
+  if (resolution === 'keep-local') return uploadSnapshot(adapter, store, remote)
   if (!remote) return { success: false, error: '云端没有可用数据' }
-  const applied = await applyRemote(adapter, store, remote.data)
-  return { success: true, action: 'downloaded', data: applied }
+  return applyRemote(adapter, store, remote, store.readSnapshot())
 }

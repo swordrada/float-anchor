@@ -299,9 +299,14 @@ export default function SettingsModal() {
     store.setSyncDecision(null)
 
     if (syncRes.action === 'downloaded' && syncRes.data) {
+      ;(document.activeElement as HTMLElement | null)?.blur?.()
+      window.dispatchEvent(new Event('fa-before-reload'))
+      await store.flushPendingSave()
       await store.loadData()
       store.refreshImageCache()
     }
+
+    if (syncRes.pending || await window.electronAPI.getSyncPending?.()) { store.setSyncStatus('pending'); return }
 
     if (syncRes.action === 'uploaded' || syncRes.action === 'downloaded') {
       markSyncSuccess()
@@ -319,10 +324,10 @@ export default function SettingsModal() {
     setGhTest('ok')
     await window.electronAPI.githubSaveToken(ghToken.trim())
     const s = { ...useStore.getState().settings, github: { repo: ghRepo.trim(), branch: ghBranch.trim() || 'main' } }
-    await useStore.getState().saveSettings(s)
-    useStore.getState().setSyncProvider('github')
+    await useStore.getState().saveSettings({ ...s, syncProvider: 'github' })
     setGhConnected(true); setGhToken(''); setGhTest('idle')
     window.electronAPI.githubAccount().then((a) => setGhAccount(a.login))
+    await useStore.getState().flushPendingSave()
     useStore.getState().setSyncStatus('syncing')
     window.electronAPI.syncAuto().then((r) => applySyncResult(r)).catch(() => useStore.getState().setSyncStatus('error', '同步失败'))
   }, [applySyncResult, ghRepo, ghBranch, ghToken])
@@ -356,11 +361,11 @@ export default function SettingsModal() {
     const config: WebDAVConfig = { server, username, password }
     const res = await window.electronAPI.syncTest(config)
     if (res.success) {
-      setWebDAVConfig(config)
-      useStore.getState().saveSettings({ ...useStore.getState().settings, webdav: config, syncProvider: 'webdav' })
+      await useStore.getState().saveSettings({ ...useStore.getState().settings, webdav: config, syncProvider: 'webdav' })
       setConnected(true)
       setTestResult('ok')
       setTimeout(() => setTestResult('idle'), 2000)
+      await useStore.getState().flushPendingSave()
       useStore.getState().setSyncStatus('syncing')
       window.electronAPI.syncAuto().then(async (syncRes) => {
         await applySyncResult(syncRes)
@@ -376,10 +381,8 @@ export default function SettingsModal() {
     const store = useStore.getState()
     store.setSyncStatus('syncing')
     try {
-      await window.electronAPI.writeData({
-        canvases: store.canvases,
-        activeCanvasId: store.activeCanvasId,
-      })
+      window.dispatchEvent(new Event('fa-before-save'))
+      await store.flushPendingSave()
       const res = await window.electronAPI.syncStartup()
       await applySyncResult(res)
     } catch {
@@ -399,6 +402,7 @@ export default function SettingsModal() {
     setSyncResolveLoading(resolution)
     useStore.getState().setSyncStatus('syncing')
     try {
+      await useStore.getState().flushPendingSave()
       const res = await window.electronAPI.syncResolveConflict(resolution)
       await applySyncResult(res)
     } catch {
