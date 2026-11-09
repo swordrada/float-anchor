@@ -178,6 +178,7 @@ export interface UpdateCheckResult {
 interface UpdateProgress {
   stage: 'downloading' | 'installing' | 'error' | 'cancelled'
   percent: number
+  error?: string
 }
 
 interface SyncStatus {

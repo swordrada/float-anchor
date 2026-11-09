@@ -19,7 +19,8 @@ import { mergeAppData } from '../src/lib/mergeData'
 import { getComparableSyncSnapshot } from './sync/summary'
 import { prepareLocalSnapshot } from './sync/local-data'
 import type { SyncResult } from './sync/types'
-import { checkForReleaseUpdate, type UpdateCheckResult } from './updater'
+import { checkForReleaseUpdate, type ReleaseUpdateResult, type UpdateCheckResult } from './updater'
+import { cleanupInstalledWindowsUpdates, launchWindowsUpdate } from './windows-updater'
 
 // Development previews never use the user's real notes or settings.
 if (!app.isPackaged && process.env.FLOAT_ANCHOR_PREVIEW_DIR) {
@@ -44,7 +45,7 @@ let mainWindow: BrowserWindow | null = null
 let instantWindow: BrowserWindow | null = null
 let isQuitting = false
 let allowMainClose = false
-let closing: Promise<void> | null = null
+let closing: Promise<boolean> | null = null
 let closeRequestId = 0
 const closeSaves = new Map<number, { sender: number; finish: (success: boolean) => void }>()
 
@@ -68,8 +69,8 @@ function flushWindow(window: BrowserWindow): Promise<void> {
   })
 }
 
-function closeAfterSave(quit: boolean) {
-  if (closing) return
+function closeAfterSave(quit: boolean, beforeQuit?: () => Promise<void>): Promise<boolean> {
+  if (closing) return Promise.resolve(false)
   const target = mainWindow
   closing = (async () => {
     try {
@@ -85,17 +86,26 @@ function closeAfterSave(quit: boolean) {
           ])
         } finally { clearTimeout(timer) }
       }
-      if (quit) { isQuitting = true; app.quit() }
+      if (quit) {
+        await beforeQuit?.()
+        isQuitting = true
+        app.quit()
+      }
       else {
         allowMainClose = true
         target?.close()
         if (instantWindow && !instantWindow.isDestroyed()) instantWindow.webContents.send('close-save-cancelled')
       }
+      return true
     } catch (error) {
       for (const window of BrowserWindow.getAllWindows()) window.webContents.send('close-save-cancelled')
+      // Update failures are reported by the update handler; leave both editors usable.
+      if (beforeQuit) throw error
       await dialog.showMessageBox({ type: 'error', title: '未能保存', message: String(error), buttons: ['返回编辑'] })
+      return false
     } finally { closing = null }
   })()
+  return closing
 }
 let instantTarget: InstantModeTarget | null = null
 let instantEditingCardId: string | null = null
@@ -227,6 +237,7 @@ function getResumePercent(destPath: string): number {
 
 let updateCheckTimer: ReturnType<typeof setInterval> | null = null
 let pendingUpdateCheck: Promise<UpdateCheckResult> | null = null
+let availableUpdate: ReleaseUpdateResult | null = null
 
 async function performUpdateCheck(): Promise<UpdateCheckResult> {
   const controller = new AbortController()
@@ -241,6 +252,7 @@ async function performUpdateCheck(): Promise<UpdateCheckResult> {
     })
     if (result.error) console.error('Update check failed:', result.error)
     if (result.hasUpdate && result.version && result.assetName && result.downloadUrl) {
+      availableUpdate = result
       const tmpDir = path.join(app.getPath('temp'), 'float-anchor-update')
       const destPath = path.join(tmpDir, result.assetName)
       const resumePct = fs.existsSync(destPath) ? 100 : getResumePercent(destPath)
@@ -291,27 +303,39 @@ ipcMain.handle('get-resume-progress', async (_event, assetName: string) => {
 
 let activeDownloadAbort: (() => void) | null = null
 let activeDownloadPath: string | null = null
+let updateInProgress = false
 
 ipcMain.handle('trigger-update', async (_event, downloadUrl: string, assetName: string) => {
-  if (activeDownloadAbort) {
+  if (updateInProgress) {
     return { success: false, error: '已有更新任务正在进行' }
   }
 
+  updateInProgress = true
   const controller = new AbortController()
   try {
+    if (!app.isPackaged) throw new Error('请在已安装的应用中更新')
+    if (!availableUpdate || availableUpdate.downloadUrl !== downloadUrl || availableUpdate.assetName !== assetName) {
+      throw new Error('更新信息已失效，请重新检查更新')
+    }
     const tmpDir = path.join(app.getPath('temp'), 'float-anchor-update')
     if (!fs.existsSync(tmpDir)) fs.mkdirSync(tmpDir, { recursive: true })
     const destPath = path.join(tmpDir, assetName)
     activeDownloadAbort = () => controller.abort()
     activeDownloadPath = destPath
 
-    const resumePct = getResumePercent(destPath)
+    const resumePct = fs.existsSync(destPath) ? 100 : getResumePercent(destPath)
     mainWindow?.webContents.send('update-progress', { stage: 'downloading', percent: resumePct })
 
-    await downloadFile(downloadUrl, destPath, (pct) => {
-      mainWindow?.webContents.send('update-progress', { stage: 'downloading', percent: pct })
-    }, controller.signal)
+    if (!fs.existsSync(destPath)) {
+      await downloadFile(downloadUrl, destPath, (pct) => {
+        mainWindow?.webContents.send('update-progress', { stage: 'downloading', percent: pct })
+      }, controller.signal)
+    }
 
+    // Cancellation is only available while downloading. Keep the update guard
+    // through saving/installing so another window cannot start a second installer.
+    if (controller.signal.aborted) throw new DOMException('update-cancelled', 'AbortError')
+    activeDownloadAbort = null
     mainWindow?.webContents.send('update-progress', { stage: 'installing', percent: 100 })
 
     if (process.platform === 'darwin') {
@@ -334,12 +358,11 @@ ipcMain.handle('trigger-update', async (_event, downloadUrl: string, assetName: 
       try { fs.rmSync(tmpDir, { recursive: true, force: true }) } catch {}
       app.relaunch({ execPath: '/Applications/FloatAnchor.app/Contents/MacOS/FloatAnchor' })
       app.exit(0)
+    } else if (process.platform === 'win32') {
+      const started = await closeAfterSave(true, () => launchWindowsUpdate(destPath, app.getPath('exe')))
+      if (!started) throw new Error('应用正在保存并关闭，请稍后重试更新')
     } else {
-      exec(`start "" "${destPath}"`)
-      setTimeout(() => {
-        try { fs.rmSync(tmpDir, { recursive: true, force: true }) } catch {}
-        app.exit(0)
-      }, 2000)
+      throw new Error('当前平台暂不支持自动更新')
     }
 
     return { success: true }
@@ -350,11 +373,12 @@ ipcMain.handle('trigger-update', async (_event, downloadUrl: string, assetName: 
       return { success: false, error: 'cancelled' }
     }
     console.error('Update failed:', err)
-    mainWindow?.webContents.send('update-progress', { stage: 'error', percent: 0 })
+    mainWindow?.webContents.send('update-progress', { stage: 'error', percent: 0, error: String(err) })
     return { success: false, error: String(err) }
   } finally {
     activeDownloadAbort = null
     activeDownloadPath = null
+    updateInProgress = false
   }
 })
 
@@ -1117,6 +1141,9 @@ protocol.registerSchemesAsPrivileged([
 ])
 
 app.whenReady().then(() => {
+  if (app.isPackaged && process.platform === 'win32') {
+    cleanupInstalledWindowsUpdates(path.join(app.getPath('temp'), 'float-anchor-update'), CURRENT_VERSION)
+  }
   configureYouTubeEmbeds(session.defaultSession)
   if (process.platform === 'darwin') {
     app.dock.setIcon(path.join(__dirname, '../build/icon.png'))

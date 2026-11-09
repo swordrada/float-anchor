@@ -183,6 +183,7 @@ export default function SettingsModal() {
         setUpdateProgress(p.percent)
         setUpdateResumePercent(p.percent)
       } else if (p.stage === 'error') {
+        setUpdateError(p.error || '更新失败，请稍后重试')
         setUpdateStatus('error')
       }
     })
