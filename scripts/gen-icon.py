@@ -49,9 +49,10 @@ def main() -> None:
     if not SOURCE.exists():
         raise FileNotFoundError(f"找不到品牌图标源：{SOURCE}")
 
-    # Derive the in-app dark variant from the same vector geometry.
-    dark_svg = SOURCE.read_text().replace('#f4ecde', '#263746').replace('#26789f', '#92bdd8')
-    DARK_SOURCE.write_text(dark_svg.replace('warm ivory tile', 'deep marine tile'))
+    # Keep the approved sea-light gradient and reflections in both themes.
+    # Only the white tile changes to deep marine on dark application surfaces.
+    dark_svg = SOURCE.read_text().replace('fill="#ffffff"', 'fill="#263746"')
+    DARK_SOURCE.write_text(dark_svg.replace('pure white tile', 'deep marine tile'))
 
     sips = require_tool("sips")
     iconutil = require_tool("iconutil")
@@ -89,6 +90,7 @@ def main() -> None:
     print(f"Generated {PNG_PATH.relative_to(ROOT)}")
     print(f"Generated {ICNS_PATH.relative_to(ROOT)}")
     print(f"Generated {ICO_PATH.relative_to(ROOT)}")
+    print(f"Generated {DARK_SOURCE.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

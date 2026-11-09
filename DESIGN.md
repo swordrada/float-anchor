@@ -10,10 +10,9 @@ colors:
   captureSoft: "#e2f1ea"
   paper: "#f8f7f2"
   danger: "#e55c5c"
-  brandBlue: "#26789f"
-  brandIvory: "#f4ecde"
+  brandBlue: "#159ed3"
+  brandWhite: "#ffffff"
   brandMarine: "#263746"
-  brandMist: "#92bdd8"
 typography:
   sans:
     fontFamily: "-apple-system, BlinkMacSystemFont, Segoe UI, PingFang SC, Microsoft YaHei, Helvetica Neue, Arial, sans-serif"
@@ -37,7 +36,7 @@ components:
 ## Overview
 
 ### Creative North Star
-白板沿用灰白工作空间；即刻窗口像桌边的一页便签。品牌以两层海浪组成 F，表达自由流动的思考；以用户补充的 FloatAnchor / Let thoughts flow. 参考图为轮廓依据。浅色 Logo 使用米白底，深色使用深海蓝底与雾蓝图形。即刻窗口保留宋体标题、纸色、绿色动作及纸飞机按钮。
+白板沿用灰白工作空间；即刻窗口像桌边的一页便签。品牌以两层海浪组成 F，表达自由流动的思考；以用户补充的 FloatAnchor / Let thoughts flow. 参考图为轮廓依据。浅色 Logo 使用纯白底与微光海蓝 F；深色保留相同海蓝图形，底板切换为深海蓝。即刻窗口保留宋体标题、纸色、绿色动作及纸飞机按钮。
 
 ### Product context and register
 - Audience and primary job: 个人笔记用户，快速记录、组织卡片、重新打开原笔记继续补充。
@@ -53,7 +52,7 @@ components:
 ## Colors
 白板使用 --bg / --card-bg / --text-primary。即时操作使用 capture / captureSoft；不可复用为普通白板蓝色选中态。深色分别使用 #66b69c / #203b34；即刻纸色为 #1b1c20。错误使用 --danger；焦点有可见 outline。
 
-品牌浅色为海蓝 #26789f 与米白 #f4ecde，由 `public/float-anchor-logo.svg` 持有。深色派生图标使用深海蓝 #263746 与雾蓝 #92bdd8，避免大块米白底在黑色界面上形成突兀的亮斑。品牌色不替代交互状态色。即刻窗口浅色 Logo 投影使用海蓝的 16% 透明度，深色改为低透明度黑色。
+品牌浅色底板为纯白 #ffffff，F 的海蓝渐变依次使用 #22addb / #159ed3 / #168fc8 / #168bc5。沿两层海浪方向叠加低透明度柔和水光，并裁切在原有 F 轮廓内；不增加动画。以上定义由 `public/float-anchor-logo.svg` 持有。深色派生图标仅将底板切换为深海蓝 #263746，延续既有深色背景适配。品牌色不替代交互状态色。即刻窗口浅色 Logo 投影使用主海蓝的 16% 透明度，深色使用低透明度黑色。
 
 ## Typography
 正文和控件使用 --font 中文系统字体；快捷键使用 --mono。即刻卡片标题沿用 Songti SC / STSong / Noto Serif CJK SC 回退。保留既有控件密度，不为新增操作扩大整卡。
@@ -87,9 +86,9 @@ components:
 RichEditor 为共用富文本编辑器。已有白板/分区选择器继续使用原生 select：桌面系统负责展开菜单与键盘交互，当前需求无自定义弹层几何要求。新增状态提示为非模态区域。新建命名表单使用 trim 校验和禁用提交，不弹出浏览器校验气泡。
 
 ### Iconography
-Logo 的轮廓源文件为 `public/float-anchor-logo.svg`。两层海浪组成 F，由用户提供的参考图自动描摹为两块实心矢量轮廓。1024 × 1024 画布的图标底板四边留白 64，底板圆角 210；保留两层海浪间的留白，确保 16px / 24px 下可区分。主题切换保留几何形状，仅切换底板与图形配色。
+Logo 的轮廓源文件为 `public/float-anchor-logo.svg`。两层海浪组成 F，由用户提供的参考图自动描摹为两块矢量轮廓。1.0.26 使用用户确认的纯白底、微光海蓝版本，深浅渐变与柔和反光沿海浪方向展开。1024 × 1024 画布的图标底板四边留白 64，底板圆角 210；保留两层海浪间的留白，确保 16px / 24px 下可区分。主题切换保留几何形状与水光，仅切换底板配色。
 
-侧栏与即刻窗口共用 `BrandLogo`，根据主题切换 SVG 并同步 favicon。README 与桌面安装图标保留米白版本。运行 `python3 scripts/gen-icon.py` 从同一源文件派生 `public/float-anchor-logo-dark.svg`，并生成 `build/icon.png`、macOS `build/icon.icns` 与 Windows `build/icon.ico`，以及各尺寸 iconset；不要单独修改派生资源。应用已有闪电路径继续复用。新增 icon-only 动作必须有中文 accessible name。
+侧栏与即刻窗口共用 `BrandLogo`，根据主题切换 SVG 并同步 favicon。README 与桌面安装图标使用纯白底微光海蓝版本。运行 `python3 scripts/gen-icon.py` 从同一源文件派生 `public/float-anchor-logo-dark.svg`，并生成 `build/icon.png`、macOS `build/icon.icns` 与 Windows `build/icon.ico`，以及各尺寸 iconset；不要单独修改派生资源。应用已有闪电路径继续复用。新增 icon-only 动作必须有中文 accessible name。
 
 ### Motion
 沿用短 hover 反馈与白板定位动画；新增即刻反馈遵循 prefers-reduced-motion，不为保存状态增加装饰动画。

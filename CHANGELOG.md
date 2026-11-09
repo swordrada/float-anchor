@@ -1,5 +1,30 @@
 # 版本公告
 
+## v1.0.26
+
+发布日期：2026-11-09。
+
+本次更新采用确认后的「纯白底 · 微光海蓝 F」品牌图标，保留 1.0.25 的分区外观与最佳大小整理功能。
+
+### 更新内容
+
+- **更明亮的品牌配色**：浅色图标从米白底调整为纯白底，F 使用更清透、鲜亮的海蓝色。
+- **柔和的海面水光**：在双层海浪 F 内加入顺着海浪方向展开的深浅渐变与微光，保留清晰轮廓和两层之间的留白。
+- **完整适配明暗主题**：深色界面使用深海蓝底板，保留同样的海蓝水光；侧栏、即刻窗口和 favicon 同步更新。
+- **更新桌面图标**：macOS、Windows 安装包及各尺寸应用图标均使用同一套新设计。
+
+### 下载与升级
+
+| 平台 | 安装包 |
+|------|--------|
+| macOS · Apple Silicon（M 系列） | [FloatAnchor-1.0.26-mac-arm64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.26/FloatAnchor-1.0.26-mac-arm64.dmg) |
+| macOS · Intel | [FloatAnchor-1.0.26-mac-x64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.26/FloatAnchor-1.0.26-mac-x64.dmg) |
+| Windows · 64 位（x64） | [FloatAnchor-1.0.26-win-setup.exe](https://github.com/swordrada/float-anchor/releases/download/v1.0.26/FloatAnchor-1.0.26-win-setup.exe) |
+
+已安装的用户可前往 **设置 → 应用 → 软件更新** 检查更新，也可退出应用后下载对应安装包覆盖安装。笔记保留在原来的本地数据目录，无需重新导入。
+
+[GitHub Release](https://github.com/swordrada/float-anchor/releases/tag/v1.0.26) · [与 v1.0.25 的代码差异](https://github.com/swordrada/float-anchor/compare/v1.0.25...v1.0.26)
+
 ## v1.0.25
 
 发布日期：2026-11-09。

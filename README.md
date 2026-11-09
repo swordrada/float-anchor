@@ -65,13 +65,13 @@
 
 ## 下载安装
 
-当前稳定版为 **[`v1.0.25`](https://github.com/swordrada/float-anchor/releases/tag/v1.0.25)**，新增海浪 F 标志、深色适配、分区外观设置与完整的分区最佳大小整理，并保留连线、视频预览和批量同步改进，提供 macOS（Apple Silicon / Intel）和 Windows 64 位安装包。完整变更见 [版本公告](CHANGELOG.md#v1025)。
+当前稳定版为 **[`v1.0.26`](https://github.com/swordrada/float-anchor/releases/tag/v1.0.26)**，采用纯白底与微光海蓝 F 标志，适配明暗主题，并保留分区外观设置、最佳大小整理、连线、视频预览和批量同步功能，提供 macOS（Apple Silicon / Intel）和 Windows 64 位安装包。完整变更见 [版本公告](CHANGELOG.md#v1026)。
 
 | 文件 | 平台 | 适用设备 |
 |------|------|----------|
-| [FloatAnchor-1.0.25-mac-arm64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.25/FloatAnchor-1.0.25-mac-arm64.dmg) | macOS | Apple Silicon（M 系列） |
-| [FloatAnchor-1.0.25-mac-x64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.25/FloatAnchor-1.0.25-mac-x64.dmg) | macOS | Intel Mac |
-| [FloatAnchor-1.0.25-win-setup.exe](https://github.com/swordrada/float-anchor/releases/download/v1.0.25/FloatAnchor-1.0.25-win-setup.exe) | Windows | 64 位 Windows（x64） |
+| [FloatAnchor-1.0.26-mac-arm64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.26/FloatAnchor-1.0.26-mac-arm64.dmg) | macOS | Apple Silicon（M 系列） |
+| [FloatAnchor-1.0.26-mac-x64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.26/FloatAnchor-1.0.26-mac-x64.dmg) | macOS | Intel Mac |
+| [FloatAnchor-1.0.26-win-setup.exe](https://github.com/swordrada/float-anchor/releases/download/v1.0.26/FloatAnchor-1.0.26-win-setup.exe) | Windows | 64 位 Windows（x64） |
 
 已安装的用户可在 **设置 → 应用 → 软件更新** 中检查更新。如果旧版本无法发现更新，可直接下载对应平台安装包，退出应用后覆盖安装；笔记仍保存在原来的本地数据目录。
 

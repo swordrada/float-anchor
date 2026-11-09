@@ -1,7 +1,7 @@
 import { useEffect, type ImgHTMLAttributes } from 'react'
 import { useStore } from '../store'
 
-/** Use the same geometry with a softer palette on dark application surfaces. */
+/** Preserve the sea-light F and adapt its tile to the application theme. */
 export default function BrandLogo(props: Omit<ImgHTMLAttributes<HTMLImageElement>, 'src'>) {
   const dark = useStore((state) => state.settings.theme === 'dark')
   const src = dark ? './float-anchor-logo-dark.svg' : './float-anchor-logo.svg'
