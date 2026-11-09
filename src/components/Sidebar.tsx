@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useStore } from '../store'
 import { shallow } from 'zustand/shallow'
 import SyncStatusIndicator from './SyncStatusIndicator'
+import BrandLogo from './BrandLogo'
 
 function UpdateBanner() {
   const [updateInfo, setUpdateInfo] = useState<{ version: string; downloadUrl: string; assetName: string } | null>(null)
@@ -186,9 +187,8 @@ export default function Sidebar({ width, onOpenSearch }: { width?: number; onOpe
     <aside className="sidebar" style={width ? { width } : undefined}>
       <div className="sidebar-header">
         <div className="sidebar-logo">
-          <img
+          <BrandLogo
             className="logo-icon"
-            src="./float-anchor-logo.svg"
             width="24"
             height="24"
             alt=""

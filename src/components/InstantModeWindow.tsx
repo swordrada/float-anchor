@@ -5,6 +5,7 @@ import rehypeRaw from 'rehype-raw'
 import { shallow } from 'zustand/shallow'
 import { useStore } from '../store'
 import RichEditor from './RichEditor'
+import BrandLogo from './BrandLogo'
 import { useInstantEditor } from '../useInstantEditor'
 import { findInstantNote } from '../lib/instantNotes'
 
@@ -284,7 +285,7 @@ export default function InstantModeWindow() {
       <section className="instant-content">
         <header className="instant-hero">
           <div className="instant-brand-mark" aria-hidden="true">
-            <img src="./float-anchor-logo.svg" alt="" />
+            <BrandLogo alt="" />
           </div>
           <div>
             <div className="instant-kicker">QUICK CAPTURE</div>

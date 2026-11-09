@@ -6,6 +6,7 @@ import { useStore, useCardById, useIsEditing, useCardActions } from '../store'
 import RichEditor from './RichEditor'
 import YouTubePreview from './YouTubePreview'
 import { parseYouTubeUrl } from '../lib/youtube'
+import { measureCardHeights } from '../lib/cardMeasurement'
 
 interface Props {
   cardId: string
@@ -118,18 +119,8 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
   const measureHeight = useCallback(() => {
     const el = cardRef.current
     if (!el) return
-    const prev = el.style.height
-    const prevContain = el.style.contain
-    el.style.height = 'auto'
-    el.style.contain = 'none'
-    el.style.overflow = 'visible'
-    void el.offsetHeight
-    const naturalHeight = Math.max(80, el.scrollHeight)
-    el.style.height = prev
-    el.style.contain = prevContain
-    el.style.overflow = ''
-    return naturalHeight
-  }, [])
+    return measureCardHeights([el])[cardId]
+  }, [cardId])
 
   useEffect(() => {
     if (isEditing) {

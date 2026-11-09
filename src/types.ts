@@ -33,7 +33,15 @@ export interface CanvasLabel {
   sourceId?: string
 }
 
-export interface Section {
+export interface SectionAppearance {
+  color: string
+  borderStyle: 'solid' | 'dashed'
+  borderColor: string
+}
+
+export type SectionAppearancePatch = Partial<SectionAppearance>
+
+export interface Section extends SectionAppearancePatch {
   id: string
   name: string
   x: number

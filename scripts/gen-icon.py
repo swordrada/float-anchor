@@ -10,6 +10,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parent.parent
 SOURCE = ROOT / "public" / "float-anchor-logo.svg"
+DARK_SOURCE = ROOT / "public" / "float-anchor-logo-dark.svg"
 BUILD_DIR = ROOT / "build"
 PNG_PATH = BUILD_DIR / "icon.png"
 ICNS_PATH = BUILD_DIR / "icon.icns"
@@ -47,6 +48,10 @@ def require_tool(name: str) -> str:
 def main() -> None:
     if not SOURCE.exists():
         raise FileNotFoundError(f"找不到品牌图标源：{SOURCE}")
+
+    # Derive the in-app dark variant from the same vector geometry.
+    dark_svg = SOURCE.read_text().replace('#f4ecde', '#263746').replace('#26789f', '#92bdd8')
+    DARK_SOURCE.write_text(dark_svg.replace('warm ivory tile', 'deep marine tile'))
 
     sips = require_tool("sips")
     iconutil = require_tool("iconutil")

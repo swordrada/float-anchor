@@ -3780,7 +3780,7 @@ input {
   height: 48px;
   flex: 0 0 auto;
   border-radius: 15px;
-  box-shadow: 0 8px 22px rgba(42, 117, 96, .24);
+  box-shadow: 0 8px 22px rgba(38, 120, 159, .16);
 }
 
 .instant-brand-mark img {
@@ -3788,6 +3788,13 @@ input {
   height: 100%;
   display: block;
 }
+
+[data-theme="dark"] .instant-brand-mark {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .12);
+}
+
+.section-fit-feedback { font-size: 12px; color: var(--text-secondary); }
+.section-fit-feedback.error { color: var(--danger); }
 
 .instant-kicker {
   margin-bottom: 1px;

@@ -65,13 +65,13 @@
 
 ## 下载安装
 
-当前稳定版为 **[`v1.0.24`](https://github.com/swordrada/float-anchor/releases/tag/v1.0.24)**，包含自适应最短路径连线与 YouTube 预览，并优化本地保存和云端批量同步，提供 macOS（Apple Silicon / Intel）和 Windows 64 位安装包。完整变更见 [版本公告](CHANGELOG.md#v1024)。
+当前稳定版为 **[`v1.0.25`](https://github.com/swordrada/float-anchor/releases/tag/v1.0.25)**，新增海浪 F 标志、深色适配、分区外观设置与完整的分区最佳大小整理，并保留连线、视频预览和批量同步改进，提供 macOS（Apple Silicon / Intel）和 Windows 64 位安装包。完整变更见 [版本公告](CHANGELOG.md#v1025)。
 
 | 文件 | 平台 | 适用设备 |
 |------|------|----------|
-| [FloatAnchor-1.0.24-mac-arm64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.24/FloatAnchor-1.0.24-mac-arm64.dmg) | macOS | Apple Silicon（M 系列） |
-| [FloatAnchor-1.0.24-mac-x64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.24/FloatAnchor-1.0.24-mac-x64.dmg) | macOS | Intel Mac |
-| [FloatAnchor-1.0.24-win-setup.exe](https://github.com/swordrada/float-anchor/releases/download/v1.0.24/FloatAnchor-1.0.24-win-setup.exe) | Windows | 64 位 Windows（x64） |
+| [FloatAnchor-1.0.25-mac-arm64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.25/FloatAnchor-1.0.25-mac-arm64.dmg) | macOS | Apple Silicon（M 系列） |
+| [FloatAnchor-1.0.25-mac-x64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.25/FloatAnchor-1.0.25-mac-x64.dmg) | macOS | Intel Mac |
+| [FloatAnchor-1.0.25-win-setup.exe](https://github.com/swordrada/float-anchor/releases/download/v1.0.25/FloatAnchor-1.0.25-win-setup.exe) | Windows | 64 位 Windows（x64） |
 
 已安装的用户可在 **设置 → 应用 → 软件更新** 中检查更新。如果旧版本无法发现更新，可直接下载对应平台安装包，退出应用后覆盖安装；笔记仍保存在原来的本地数据目录。
 
@@ -122,6 +122,8 @@
 - **删除卡片** — hover 卡片顶部灰色条时，点击右侧垃圾桶图标
 - **右键菜单** — 在卡片上右键（macOS 双指点击），可进行最佳大小调整、拷贝链接、移动到其他画布、连接卡片、编辑和删除；菜单项右侧会标注对应快捷键
 - **画布右键菜单** — 在画布空白处右键，可创建空白卡片、创建文本、创建标题、创建分区
+- **分区颜色** — 点击分区标题，在浮动工具栏中修改背景、边框颜色和线型，支持预设色与自定义色值；按住 Shift / ⌘ / Ctrl 点击可多选并批量修改。
+- **分区最佳大小** — 选中分区后按 `F`、点击工具栏「最佳大小」或使用右键菜单。先按内容调整所有成员卡片的高度（保持宽度），再以 12px 磁吸间距收紧排布，最后调整分区边界；屏幕外卡片和带连线卡片也会一起整理。
 - **插入图片** — 在编辑卡片时直接 **粘贴**（⌘V / Ctrl+V）或 **拖入** 图片；图片会自动存为本地文件并以引用插入
 - **退出编辑** — 点击卡片外部区域，或按 `Esc` 键
 

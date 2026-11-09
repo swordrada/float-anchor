@@ -2,8 +2,10 @@ import { contentFingerprint } from './lib/syncData'
 import { create } from 'zustand'
 import { shallow } from 'zustand/shallow'
 import { v4 as uuid } from 'uuid'
-import type { Canvas, Card, CanvasLabel, Section, Connection, CanvasViewport, AppSettings, WebDAVConfig, WebDAVSyncDecision, TextBox, SyncProvider, JournalData } from './types'
+import type { Canvas, Card, CanvasLabel, Section, SectionAppearance, SectionAppearancePatch, Connection, CanvasViewport, AppSettings, WebDAVConfig, WebDAVSyncDecision, TextBox, SyncProvider, JournalData } from './types'
 import { getTodayDateKey } from './lib/dateUtils'
+import { getSectionAppearance, sanitizeSectionAppearancePatch } from './sectionStyle'
+import { fitSectionLayout, CARD_SNAP_GAP } from './sectionLayout'
 
 export function getEffectiveProvider(settings: AppSettings): SyncProvider {
   return settings.syncProvider ?? (settings.webdav?.server ? 'webdav' : 'none')
@@ -12,7 +14,7 @@ export function getEffectiveProvider(settings: AppSettings): SyncProvider {
 interface SnapRect { x: number; y: number; width: number; height: number }
 
 const INSTANT_CARD_WIDTH = 373
-const INSTANT_GAP = 12
+const INSTANT_GAP = CARD_SNAP_GAP
 const SECTION_PAD = 24
 const SECTION_HEADER = 36
 
@@ -274,10 +276,11 @@ interface AppState {
 
   addSection: (x: number, y: number) => void
   updateSection: (sectionId: string, patch: Partial<Section>) => void
+  updateSections: (ids: string[], patch: SectionAppearancePatch) => void
   deleteSection: (sectionId: string) => void
   moveSection: (sectionId: string, dx: number, dy: number) => void
   autoFitSection: (sectionId: string) => void
-  compactSection: (sectionId: string) => void
+  compactSection: (sectionId: string, heights: Readonly<Record<string, number>>) => void
   arrangeUnits: (ids: { cardIds: string[]; labelIds: string[]; sectionIds: string[]; textIds: string[] }) => void
   deleteUnits: (ids: { cardIds: string[]; labelIds: string[]; sectionIds: string[]; textIds: string[] }) => void
   nudgeUnits: (ids: { cardIds: string[]; labelIds: string[]; sectionIds: string[]; textIds: string[] }, dx: number, dy: number) => void
@@ -766,7 +769,7 @@ export const useStore = create<AppState>((set, get) => ({
     if (!self) return
 
     const SNAP_DIST = 6
-    const GAP = 12
+    const GAP = CARD_SNAP_GAP
     const selfW = self.width
     const selfH = self.height ?? 300
 
@@ -873,7 +876,7 @@ export const useStore = create<AppState>((set, get) => ({
     const sections = canvas.sections ?? []
     if (sections.length === 0) return
 
-    const GAP = 12
+    const GAP = CARD_SNAP_GAP
     const SECTION_PAD = 24
     const SECTION_HEADER = 36
 
@@ -1160,6 +1163,36 @@ export const useStore = create<AppState>((set, get) => ({
     get().persist()
   },
 
+  updateSections: (ids, patch) => {
+    const validPatch = sanitizeSectionAppearancePatch(patch)
+    const keys = Object.keys(validPatch) as (keyof SectionAppearance)[]
+    if (ids.length === 0 || keys.length === 0) return
+    const { activeCanvasId, canvases } = get()
+    const canvas = canvases.find((item) => item.id === activeCanvasId)
+    if (!canvas?.sections?.length) return
+    const selectedIds = new Set(ids)
+    let changed = false
+    const sections = canvas.sections.map((section) => {
+      if (!selectedIds.has(section.id)) return section
+      const appearance = getSectionAppearance(section)
+      if (!keys.some((key) => appearance[key] !== validPatch[key])) return section
+      changed = true
+      const next = { ...section, ...validPatch }
+      // Legacy sections derive their border from the fill. Freeze that old border
+      // before changing the fill so the two color controls remain independent.
+      if (validPatch.color && validPatch.color !== appearance.color && validPatch.borderColor === undefined &&
+        sanitizeSectionAppearancePatch(section).borderColor === undefined) {
+        next.borderColor = appearance.borderColor
+      }
+      return next
+    })
+    if (!changed) return
+    set((s) => ({
+      canvases: s.canvases.map((item) => item.id === activeCanvasId ? { ...item, sections } : item),
+    }))
+    get().persist()
+  },
+
   deleteSection: (sectionId) => {
     const { activeCanvasId } = get()
     if (!activeCanvasId) return
@@ -1227,170 +1260,21 @@ export const useStore = create<AppState>((set, get) => ({
     get().persist()
   },
 
-  compactSection: (sectionId) => {
-    const { activeCanvasId } = get()
-    if (!activeCanvasId) return
-    const canvas = get().canvases.find((c) => c.id === activeCanvasId)
-    if (!canvas) return
-    const section = (canvas.sections ?? []).find((s) => s.id === sectionId)
-    if (!section) return
-    const memberIds = section.cardIds ?? []
-    if (memberIds.length === 0) return
-
-    const GAP = 12
-    const members = canvas.cards.filter((c) => memberIds.includes(c.id))
-    const connections = canvas.connections ?? []
-
-    const lockedIds = new Set<string>()
-    for (const conn of connections) {
-      if (memberIds.includes(conn.fromCardId) && memberIds.includes(conn.toCardId)) {
-        lockedIds.add(conn.fromCardId)
-        lockedIds.add(conn.toCardId)
-      }
-    }
-
-    type Rect = { id: string; x: number; y: number; w: number; h: number; locked: boolean }
-    const rects: Rect[] = members.map((c) => ({
-      id: c.id, x: c.x, y: c.y, w: c.width, h: c.height ?? 200,
-      locked: lockedIds.has(c.id),
-    }))
-
-    const byX = [...rects].sort((a, b) => a.x - b.x)
-    const columns: Rect[][] = []
-    for (const r of byX) {
-      const cx = r.x + r.w / 2
-      let placed = false
-      for (const col of columns) {
-        const colCx = col[0].x + col[0].w / 2
-        if (Math.abs(cx - colCx) < Math.max(r.w, col[0].w) * 0.6) {
-          col.push(r)
-          placed = true
-          break
-        }
-      }
-      if (!placed) columns.push([r])
-    }
-
-    for (const col of columns) col.sort((a, b) => a.y - b.y)
-    columns.sort((a, b) => {
-      const medA = a.reduce((s, r) => s + r.x, 0) / a.length
-      const medB = b.reduce((s, r) => s + r.x, 0) / b.length
-      return medA - medB
-    })
-
-    const originY = Math.min(...rects.map((r) => r.y))
-    const cardMap = new Map(members.map((c) => [c.id, { ...c }]))
-
-    const finalPlaced: Rect[] = []
-    for (const r of rects) {
-      if (r.locked) finalPlaced.push({ ...r })
-    }
-
-    const colOverlapsLocked = (x: number, y: number, w: number, h: number) =>
-      finalPlaced.some((p) =>
-        x < p.x + p.w + GAP && x + w + GAP > p.x &&
-        y < p.y + p.h + GAP && y + h + GAP > p.y)
-
-    let colX = rects.reduce((m, r) => Math.min(m, r.x), Infinity)
-
-    for (const col of columns) {
-      const colW = Math.max(...col.map((r) => r.w))
-      const freeInCol = col.filter((r) => !r.locked)
-      const lockedInCol = col.filter((r) => r.locked).sort((a, b) => a.y - b.y)
-
-      // Build list of "slots" — free vertical intervals in this column,
-      // considering locked cards as immovable obstacles.
-      type Slot = { top: number; bottom: number }
-      const slots: Slot[] = []
-      let scanY = originY
-
-      for (const lk of lockedInCol) {
-        if (lk.y > scanY + GAP) {
-          slots.push({ top: scanY, bottom: lk.y - GAP })
-        }
-        scanY = Math.max(scanY, lk.y + lk.h + GAP)
-      }
-      // Unbounded slot after all locked cards
-      slots.push({ top: scanY, bottom: Infinity })
-
-      // Fill slots with free cards, preserving original y-order.
-      const pending = [...freeInCol]
-      for (const slot of slots) {
-        let cy = slot.top
-        let i = 0
-        while (i < pending.length) {
-          const r = pending[i]
-          if (cy + r.h > slot.bottom && slot.bottom !== Infinity) {
-            // Card doesn't fit in remaining slot space, try next card
-            i++
-            continue
-          }
-          // Check overlap with all already-placed cards (including locked from other cols)
-          if (!colOverlapsLocked(colX, cy, r.w, r.h)) {
-            cardMap.set(r.id, { ...cardMap.get(r.id)!, x: Math.round(colX), y: Math.round(cy) })
-            finalPlaced.push({ ...r, x: colX, y: cy })
-            cy += r.h + GAP
-            pending.splice(i, 1)
-          } else {
-            // Skip past the obstacle
-            let maxBottom = cy
-            for (const p of finalPlaced) {
-              if (colX < p.x + p.w + GAP && colX + r.w + GAP > p.x &&
-                  cy < p.y + p.h + GAP && cy + r.h + GAP > p.y) {
-                maxBottom = Math.max(maxBottom, p.y + p.h + GAP)
-              }
-            }
-            cy = maxBottom
-          }
-        }
-      }
-
-      // Any remaining cards that couldn't fit in slots go at the tail
-      let tailY = slots[slots.length - 1].top
-      for (const p of finalPlaced) {
-        if (p.x >= colX - GAP && p.x < colX + colW + GAP) {
-          tailY = Math.max(tailY, p.y + p.h + GAP)
-        }
-      }
-      for (const r of pending) {
-        cardMap.set(r.id, { ...cardMap.get(r.id)!, x: Math.round(colX), y: Math.round(tailY) })
-        finalPlaced.push({ ...r, x: colX, y: tailY })
-        tailY += r.h + GAP
-      }
-
-      colX += colW + GAP
-    }
-
-    const updatedCards = [...cardMap.values()]
-    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
-    for (const c of updatedCards) {
-      minX = Math.min(minX, c.x)
-      minY = Math.min(minY, c.y)
-      maxX = Math.max(maxX, c.x + c.width)
-      maxY = Math.max(maxY, c.y + (c.height ?? 200))
-    }
-    const pad = 24
-    const newSection = {
-      ...section,
-      x: minX - pad,
-      y: minY - pad - 36,
-      width: maxX - minX + pad * 2,
-      height: maxY - minY + pad * 2 + 36,
-    }
-
-    set((s) => ({
-      canvases: s.canvases.map((c) =>
-        c.id === activeCanvasId
-          ? {
-              ...c,
-              cards: c.cards.map((card) => {
-                const updated = cardMap.get(card.id)
-                return updated ? updated : card
-              }),
-              sections: (c.sections ?? []).map((sec) => sec.id === sectionId ? newSection : sec),
-            }
-          : c,
-      ),
+  compactSection: (sectionId, heights) => {
+    const { activeCanvasId, canvases } = get()
+    const canvas = canvases.find((item) => item.id === activeCanvasId)
+    const section = canvas?.sections?.find((item) => item.id === sectionId)
+    if (!canvas || !section) return
+    const layout = fitSectionLayout(canvas.cards, section, heights)
+    if (!layout) return
+    // Commit fitted card sizes, snapped positions and section bounds together.
+    // Connections retain their IDs/endpoints and follow the new card geometry.
+    set((state) => ({
+      canvases: state.canvases.map((item) => item.id === activeCanvasId ? {
+        ...item,
+        cards: layout.cards,
+        sections: item.sections?.map((item) => item.id === sectionId ? layout.section : item),
+      } : item),
     }))
     get().persist()
   },

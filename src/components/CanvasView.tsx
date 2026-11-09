@@ -4,6 +4,7 @@ import NoteCard from './NoteCard'
 import CanvasLabelComponent from './CanvasLabel'
 import TextBoxComponent from './TextBox'
 import SectionBox from './SectionBox'
+import SectionSelectionToolbar from './SectionSelectionToolbar'
 import ContextMenu from './ContextMenu'
 import MoveToModal from './MoveToModal'
 import ConfirmModal from './ConfirmModal'
@@ -15,6 +16,9 @@ import { expandCardIdsForSelectedSections } from '../canvasSelection'
 import { getSearchTargetBounds, getSearchTargetViewport } from '../lib/searchNavigation'
 import type { SearchNavigationTarget } from '../lib/searchNavigation'
 import { getConnectionGeometry, getConnectionPreview } from '../connectionGeometry'
+import { CARD_SNAP_GAP } from '../sectionLayout'
+import { measureCardHeights } from '../lib/cardMeasurement'
+import { useFitSections } from '../useFitSections'
 
 const MIN_SCALE = 0.15
 const MAX_SCALE = 3
@@ -189,7 +193,9 @@ export default function CanvasView() {
   const nudgeUnits = useStore((s) => s.nudgeUnits)
   const setEditingText = useStore((s) => s.setEditingText)
   const addSection = useStore((s) => s.addSection)
-  const compactSection = useStore((s) => s.compactSection)
+  const updateSections = useStore((s) => s.updateSections)
+  const editingCardId = useStore((s) => s.editingCardId)
+  const editingTextId = useStore((s) => s.editingTextId)
   const highlightCardId = useHighlightCard()
   const setHighlightCard = useStore((s) => s.setHighlightCard)
   const saveViewport = useStore((s) => s.saveViewport)
@@ -204,6 +210,7 @@ export default function CanvasView() {
 
   const viewportRef = useRef<HTMLDivElement>(null)
   const innerRef = useRef<HTMLDivElement>(null)
+  const { fitSections, fittingCardIds, fitting, error: fitError } = useFitSections(innerRef, meta?.id)
   const zoomRef = useRef<HTMLSpanElement>(null)
 
   const pan = useRef({ x: 0, y: 0 })
@@ -348,6 +355,7 @@ export default function CanvasView() {
 
     const onWheel = (e: WheelEvent) => {
       const t = e.target as HTMLElement
+      if (t.closest('.section-selection-toolbar')) return
       if (t.tagName === 'TEXTAREA' || t.tagName === 'INPUT') return
       if (!e.ctrlKey && !e.metaKey && t.closest('.rich-editor-wrap')) return
       e.preventDefault()
@@ -474,6 +482,7 @@ export default function CanvasView() {
   }, [toCanvasCoords])
 
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    if ((e.target as HTMLElement).closest('.section-selection-toolbar, button, input, textarea, select, [contenteditable]')) return
     if (e.button === 1) {
       e.preventDefault()
       setIsPanDragging(true)
@@ -560,7 +569,7 @@ export default function CanvasView() {
     let dragRaf = 0
 
     const SNAP_DIST = 6
-    const GAP = 12
+    const GAP = CARD_SNAP_GAP
 
     const store0 = useStore.getState()
     const canvas0 = store0.canvases.find((c) => c.id === store0.activeCanvasId)
@@ -763,7 +772,7 @@ export default function CanvasView() {
       if (k === 'f') {
         if (selection.sectionIds.size === 0) return
         e.preventDefault()
-        for (const sid of selection.sectionIds) compactSection(sid)
+        fitSections([...selection.sectionIds])
         return
       }
 
@@ -796,7 +805,7 @@ export default function CanvasView() {
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [connectingFrom, connections, deleteConnection, selection, confirmDelete, arrangeUnits, compactSection, addCard, addText, addSection, setEditingCard, setEditingText, nudgeUnits, zoomAroundCenter, resetZoomAroundCenter, viewportCenterCanvasCoords])
+  }, [connectingFrom, connections, deleteConnection, selection, confirmDelete, arrangeUnits, fitSections, addCard, addText, addSection, setEditingCard, setEditingText, nudgeUnits, zoomAroundCenter, resetZoomAroundCenter, viewportCenterCanvasCoords])
 
   useEffect(() => {
     if (!connectingFrom) {
@@ -866,18 +875,7 @@ export default function CanvasView() {
               if (!cardId) return
               const el = noteCard as HTMLElement
 
-              const prevHeight = el.style.height
-              const prevContain = el.style.contain
-              el.style.height = 'auto'
-              el.style.contain = 'none'
-
-              void el.offsetHeight
-
-              const naturalHeight = el.scrollHeight
-              el.style.height = prevHeight
-              el.style.contain = prevContain
-
-              const bestHeight = Math.max(80, Math.round(naturalHeight))
+              const bestHeight = measureCardHeights([el])[cardId]
               updateCard(cardId, { height: bestHeight })
             },
           },
@@ -936,7 +934,11 @@ export default function CanvasView() {
               label: '分区最佳大小',
               shortcut: scKey('compactSection'),
               icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>,
-              onClick: () => compactSection(hitSection.id),
+              onClick: () => fitSections([hitSection.id]),
+            },
+            {
+              label: '分区颜色与外观…',
+              onClick: () => setSelection({ ...emptySelection(), sectionIds: new Set([hitSection.id]) }),
             },
           ],
         })
@@ -972,7 +974,7 @@ export default function CanvasView() {
         })
       }
     }
-  }, [cards, sections, labels, texts, selection, addCard, addLabel, addText, addSection, deleteCard, setEditingCard, updateCard, toCanvasCoords, connectingFrom, compactSection, arrangeUnits])
+  }, [cards, sections, labels, texts, selection, addCard, addLabel, addText, addSection, deleteCard, setEditingCard, updateCard, toCanvasCoords, connectingFrom, fitSections, arrangeUnits])
 
   const handleDoubleClick = useCallback(
     (e: React.MouseEvent) => {
@@ -1197,6 +1199,7 @@ export default function CanvasView() {
       <div className="canvas-toolbar">
         <h2 className="canvas-toolbar-title">{meta.name}</h2>
         <div className="toolbar-right">
+          {(fitting || fitError) && <span className={`section-fit-feedback${fitError ? ' error' : ''}`} role="status">{fitting ? '正在调整卡片与分区…' : fitError}</span>}
           <span ref={zoomRef} className="zoom-indicator">100%</span>
         </div>
       </div>
@@ -1214,7 +1217,17 @@ export default function CanvasView() {
           style={{ transform: 'translate3d(0,0,0) scale(1)', transformOrigin: '0 0' }}
         >
           {sections.map((sec) => (
-            <SectionBox key={sec.id} section={sec} scale={scaleVal.current} selected={selection.sectionIds.has(sec.id)} onSelect={(id) => setSelection({ ...emptySelection(), sectionIds: new Set([id]) })} />
+            <SectionBox key={sec.id} section={sec} scale={scaleVal.current} selected={selection.sectionIds.has(sec.id)} onSelect={(id, event) => {
+              setConnectingFrom(null)
+              setCtxMenu(null)
+              setSelection((current) => {
+                if (!event.ctrlKey && !event.metaKey && !event.shiftKey) return { ...emptySelection(), sectionIds: new Set([id]) }
+                const sectionIds = new Set(current.sectionIds)
+                if (sectionIds.has(id)) sectionIds.delete(id)
+                else sectionIds.add(id)
+                return { ...current, sectionIds }
+              })
+            }} />
           ))}
 
           {labels.map((label) => (
@@ -1276,7 +1289,7 @@ export default function CanvasView() {
           </svg>
 
           {cards.map((card) =>
-            visibleCardIds.has(card.id) || selection.cardIds.has(card.id) ? (
+            visibleCardIds.has(card.id) || selection.cardIds.has(card.id) || fittingCardIds.has(card.id) ? (
               <NoteCard
                 key={card.id}
                 cardId={card.id}
@@ -1311,6 +1324,16 @@ export default function CanvasView() {
             />
           )}
         </div>
+
+        {!connectingFrom && !editingCardId && !editingTextId && selection.sectionIds.size > 0 && (
+          <SectionSelectionToolbar
+            sections={sections.filter((section) => selection.sectionIds.has(section.id))}
+            onChange={(patch) => updateSections([...selection.sectionIds], patch)}
+            onFit={() => fitSections([...selection.sectionIds])}
+            fitting={fitting}
+            onClear={() => { setSelection(emptySelection()); setCtxMenu(null) }}
+          />
+        )}
 
         {cards.length === 0 && (
           <div className="canvas-empty-cards">

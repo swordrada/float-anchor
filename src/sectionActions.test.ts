@@ -1,0 +1,76 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { useStore } from './store'
+import type { Card, Section, SectionAppearancePatch } from './types'
+
+const card = (id: string, x: number, y: number): Card => ({ id, title: id, content: '原始内容', x, y, width: 300, height: 800 })
+const section: Section = { id: 's', name: '灵感', x: 0, y: 0, width: 2000, height: 3000, color: '#60a5fa', cardIds: ['a', 'b'] }
+
+describe('分区外观与最佳大小的保存集成', () => {
+  beforeEach(async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('window', { electronAPI: { writeData: vi.fn(async () => true) } })
+    useStore.setState({
+      activeCanvasId: 'board', settings: { theme: 'dark', syncProvider: 'none' }, syncDecision: null,
+      canvases: [
+        { id: 'board', name: '当前', cards: [card('a', 100, 100), card('b', 100, 1600), card('outside', 4000, 0)],
+          sections: [structuredClone(section), { ...section, id: 'other', cardIds: [] }],
+          connections: [{ id: 'line', fromCardId: 'a', toCardId: 'b' }] },
+        { id: 'inactive', name: '另一张', cards: [], sections: [structuredClone(section)] },
+      ],
+    })
+    await useStore.getState().flushPendingSave()
+    vi.mocked(window.electronAPI.writeData).mockClear()
+  })
+  afterEach(async () => {
+    await useStore.getState().flushPendingSave()
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  it('只修改选中分区的外观并保存，旧分区可分别设置背景与边框', async () => {
+    const before = useStore.getState().canvases
+    useStore.getState().updateSections(['s'], { color: '#ABC', borderStyle: 'solid' })
+    const after = useStore.getState().canvases
+    expect(after[0].sections![0]).toEqual({ ...section, color: '#aabbcc', borderStyle: 'solid', borderColor: '#60a5fa' })
+    expect(after[0].cards).toBe(before[0].cards)
+    expect(after[0].sections![1]).toBe(before[0].sections![1])
+    expect(after[1]).toBe(before[1])
+    await vi.advanceTimersByTimeAsync(600)
+    expect(window.electronAPI.writeData).toHaveBeenCalledOnce()
+    expect(vi.mocked(window.electronAPI.writeData).mock.calls[0][0].canvases).toEqual(after)
+  })
+
+  it('多选统一改色，拒绝无效颜色和外观接口中的几何修改', () => {
+    const before = useStore.getState().canvases
+    useStore.getState().updateSections(['s'], { color: 'red', borderStyle: 'none', x: 999 } as unknown as SectionAppearancePatch)
+    expect(useStore.getState().canvases).toBe(before)
+    useStore.getState().updateSections(['s', 'other'], { borderColor: '#234567' })
+    expect(useStore.getState().canvases[0].sections!.map((item) => item.borderColor)).toEqual(['#234567', '#234567'])
+  })
+
+  it('带连线成员也会调整大小、以 12px 排布，连线与分区外内容不变', async () => {
+    const before = useStore.getState().canvases
+    const changes: unknown[] = []
+    const unsubscribe = useStore.subscribe((state) => { changes.push(state.canvases) })
+    useStore.getState().compactSection('s', { a: 120, b: 900 })
+    unsubscribe()
+    const after = useStore.getState().canvases
+    expect(changes).toHaveLength(1)
+    expect(after[0].cards[0]).toMatchObject({ height: 120, x: 100, y: 100 })
+    expect(after[0].cards[1]).toMatchObject({ height: 900, x: 100, y: 232, content: '原始内容' })
+    expect(after[0].sections![0]).toMatchObject({ x: 76, y: 40, width: 348, height: 1116 })
+    expect(after[0].connections).toBe(before[0].connections)
+    expect(after[0].cards[2]).toBe(before[0].cards[2])
+    expect(after[1]).toBe(before[1])
+    await vi.advanceTimersByTimeAsync(600)
+    expect(window.electronAPI.writeData).toHaveBeenCalledOnce()
+    expect(vi.mocked(window.electronAPI.writeData).mock.calls[0][0].canvases).toEqual(after)
+  })
+
+  it('未完成全部成员测量时，不调整任何卡片或分区', () => {
+    const before = useStore.getState().canvases
+    useStore.getState().compactSection('s', { a: 120 })
+    expect(useStore.getState().canvases).toBe(before)
+    expect(window.electronAPI.writeData).not.toHaveBeenCalled()
+  })
+})

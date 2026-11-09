@@ -1,5 +1,30 @@
 # 版本公告
 
+## v1.0.25
+
+发布日期：2026-11-09。
+
+本次更新带来全新海浪 F 标志、分区外观设置和完整的分区最佳大小整理流程，并包含 1.0.23、1.0.24 的全部改进。
+
+### 更新内容
+
+- **全新海浪 F 标志**：以两层海浪组成 F，浅色主题使用米白与海蓝，深色主题使用深海蓝与雾蓝；侧栏、即刻窗口和 favicon 随主题切换，桌面安装图标同步更新。
+- **恢复分区颜色与外观设置**：点击分区标题即可修改背景色、边框颜色和实线/虚线；支持八种预设色、自定义十六进制色值，以及 Shift / ⌘ / Ctrl 多选后批量应用。设置会保存，兼容已有分区。
+- **分区最佳大小一次整理到位**：先按内容调整所有成员卡片的高度（保留宽度），再保持原有列与阅读顺序，以 12px 磁吸间距紧凑排布，最后收紧分区边界。支持工具栏、右键菜单和快捷键 `F`。
+- **完整处理屏幕外与带连线卡片**：整理时加载并测量屏幕外卡片及图片，连线跟随新位置；测量未完成时不提交部分布局，重复整理不漂移。
+
+### 下载与升级
+
+| 平台 | 安装包 |
+|------|--------|
+| macOS · Apple Silicon（M 系列） | [FloatAnchor-1.0.25-mac-arm64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.25/FloatAnchor-1.0.25-mac-arm64.dmg) |
+| macOS · Intel | [FloatAnchor-1.0.25-mac-x64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.25/FloatAnchor-1.0.25-mac-x64.dmg) |
+| Windows · 64 位（x64） | [FloatAnchor-1.0.25-win-setup.exe](https://github.com/swordrada/float-anchor/releases/download/v1.0.25/FloatAnchor-1.0.25-win-setup.exe) |
+
+已安装的用户可前往 **设置 → 应用 → 软件更新** 检查更新，也可退出应用后下载对应安装包覆盖安装。笔记保留在原来的本地数据目录，无需重新导入。使用多设备同步时，建议各设备一起升级。
+
+[GitHub Release](https://github.com/swordrada/float-anchor/releases/tag/v1.0.25) · [与 v1.0.24 的代码差异](https://github.com/swordrada/float-anchor/compare/v1.0.24...v1.0.25)
+
 ## v1.0.24
 
 发布日期：2026-11-08；同日补齐连线功能后重新构建。已安装同版本的用户请重新下载安装包覆盖安装。
