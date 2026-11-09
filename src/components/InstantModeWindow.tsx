@@ -5,6 +5,7 @@ import rehypeRaw from 'rehype-raw'
 import { shallow } from 'zustand/shallow'
 import { useStore } from '../store'
 import RichEditor from './RichEditor'
+import MarkdownVideoLink from './MarkdownVideoLink'
 import BrandLogo from './BrandLogo'
 import { useInstantEditor } from '../useInstantEditor'
 import { findInstantNote } from '../lib/instantNotes'
@@ -420,7 +421,7 @@ export default function InstantModeWindow() {
             {preview ? (
               <div className="instant-markdown-preview markdown-body">
                 {title.trim() && <h1 className="instant-preview-title">{title.trim()}</h1>}
-                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]}>
+                <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} components={{ a: MarkdownVideoLink }}>
                   {content}
                 </ReactMarkdown>
               </div>

@@ -1,14 +1,19 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type MouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { youtubeEmbedUrl, type YouTubeVideo } from '../lib/youtube'
 
-export default function YouTubePreview({ video, children }: { video: YouTubeVideo; children: ReactNode }) {
+// Keep the media at 16:9 without adding a black strip to satisfy YouTube's
+// 200 × 200 minimum player viewport. Smaller cards play in the existing dialog.
+const MIN_INLINE_WIDTH = 200 * 16 / 9
+
+export default function YouTubePreview({ video, onRemove }: { video: YouTubeVideo; onRemove?: () => void }) {
   const [playing, setPlaying] = useState(false)
   const [expanded, setExpanded] = useState(false)
   const [imageFailed, setImageFailed] = useState(false)
   const previewRef = useRef<HTMLSpanElement>(null)
   const dialogRef = useRef<HTMLDialogElement>(null)
   const playRef = useRef<HTMLButtonElement>(null)
+  const returnFocusRef = useRef<HTMLButtonElement | null>(null)
   const watchUrl = `https://www.youtube.com/watch?v=${video.id}${video.start ? `&t=${video.start}s` : ''}`
 
   useEffect(() => {
@@ -19,7 +24,7 @@ export default function YouTubePreview({ video, children }: { video: YouTubeVide
     const preview = previewRef.current
     if (!playing || expanded || !preview) return
     const observer = new ResizeObserver(() => {
-      if (preview.clientWidth < 200) setExpanded(true)
+      if (preview.clientWidth < MIN_INLINE_WIDTH) setExpanded(true)
     })
     observer.observe(preview)
     return () => observer.disconnect()
@@ -28,12 +33,19 @@ export default function YouTubePreview({ video, children }: { video: YouTubeVide
   const close = () => {
     setExpanded(false)
     setPlaying(false)
-    requestAnimationFrame(() => playRef.current?.focus())
+    requestAnimationFrame(() => {
+      const trigger = returnFocusRef.current
+      if (trigger?.isConnected) trigger.focus()
+      else playRef.current?.focus()
+    })
   }
-  const play = () => {
-    // YouTube requires a 200px-wide player. Narrow cards keep their width
-    // and use an in-app dialog instead of stretching the card.
-    if ((previewRef.current?.clientWidth ?? 0) < 200) setExpanded(true)
+  const expand = (event: MouseEvent<HTMLButtonElement>) => {
+    returnFocusRef.current = event.currentTarget
+    setExpanded(true)
+  }
+  const play = (event: MouseEvent<HTMLButtonElement>) => {
+    returnFocusRef.current = event.currentTarget
+    if ((previewRef.current?.clientWidth ?? 0) < MIN_INLINE_WIDTH) setExpanded(true)
     else setPlaying(true)
   }
   const player = (
@@ -49,19 +61,25 @@ export default function YouTubePreview({ video, children }: { video: YouTubeVide
 
   return (
     <span className="youtube-preview" ref={previewRef} onDoubleClick={(e) => e.stopPropagation()}>
-      <span className={`youtube-media${playing && !expanded ? ' is-playing' : ''}`}>
+      <span className="youtube-media">
         {playing && !expanded ? player : (
           <button ref={playRef} type="button" className="youtube-cover" onClick={play} aria-label="在卡片内播放 YouTube 视频">
-            {!imageFailed && <img src={`https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`} alt="YouTube 视频封面" loading="lazy" onError={() => setImageFailed(true)} />}
-            <span className="youtube-play-icon" aria-hidden="true">▶</span>
-            <span className="youtube-cover-label">YouTube · 点击播放</span>
+            {!imageFailed && <img src={`https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`} alt="" loading="lazy" onError={() => setImageFailed(true)} />}
+            <span className="youtube-play-icon" aria-hidden="true"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z" /></svg></span>
+            {imageFailed && <span className="youtube-cover-error">封面暂不可用，仍可尝试播放</span>}
           </button>
         )}
-      </span>
-      <span className="youtube-actions">
-        <a href={watchUrl} target="_blank" rel="noopener noreferrer" title="在 YouTube 打开">{children || '在 YouTube 打开'}</a>
-        <button type="button" onClick={() => setExpanded(true)}>放大播放</button>
-        {playing && <button type="button" onClick={close}>收起</button>}
+        <span className="youtube-overlay-actions">
+          <button type="button" onClick={expand} aria-label="放大播放" title="放大播放">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M9 3H3v6m12-6h6v6M3 15v6h6m12-6v6h-6" /></svg>
+          </button>
+          {playing && <button type="button" onClick={close} aria-label="停止播放" title="停止播放">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1" /></svg>
+          </button>}
+          {onRemove && <button type="button" onClick={onRemove} aria-label="删除视频" title="删除视频（可撤销）">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7" /></svg>
+          </button>}
+        </span>
       </span>
       {expanded && createPortal(
         <dialog ref={dialogRef} className="youtube-dialog" aria-label="YouTube 视频" onCancel={close} onClose={close}

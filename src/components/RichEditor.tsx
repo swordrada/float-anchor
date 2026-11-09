@@ -11,6 +11,7 @@ import Highlight from '@tiptap/extension-highlight'
 import { Plugin } from '@tiptap/pm/state'
 import { marked } from 'marked'
 import TurndownService from 'turndown'
+import { YouTubeEmbed } from './YouTubeNodeView'
 
 const td = new TurndownService({
   headingStyle: 'atx',
@@ -94,17 +95,17 @@ function mdToHtml(md: string): string {
   return marked.parse(md, { async: false }) as string
 }
 
-// A block image at the end of a ProseMirror document otherwise leaves no
+// A block media item at the end of a ProseMirror document otherwise leaves no
 // obvious place for the user to continue writing. Keep a real paragraph after
 // it so the caret has a stable, clickable destination.
-const TrailingParagraphAfterImage = Extension.create({
-  name: 'trailingParagraphAfterImage',
+const TrailingParagraphAfterMedia = Extension.create({
+  name: 'trailingParagraphAfterMedia',
 
   addProseMirrorPlugins() {
     return [
       new Plugin({
         appendTransaction: (_transactions, _oldState, newState) => {
-          if (newState.doc.lastChild?.type.name !== 'image') return null
+          if (!['image', 'youtubeVideo'].includes(newState.doc.lastChild?.type.name ?? '')) return null
           const paragraph = newState.schema.nodes.paragraph
           if (!paragraph) return null
           return newState.tr.insert(newState.doc.content.size, paragraph.create())
@@ -261,7 +262,8 @@ export default function RichEditor({
         allowBase64: true,
         HTMLAttributes: { class: 'editor-image' },
       }),
-      TrailingParagraphAfterImage,
+      YouTubeEmbed,
+      TrailingParagraphAfterMedia,
       TextStyle,
       Color,
       Highlight.configure({
@@ -275,8 +277,8 @@ export default function RichEditor({
     content: mdToHtml(content),
     editable: !readOnly,
     onCreate: ({ editor: e }) => {
-      if (e.state.doc.lastChild?.type.name === 'image') {
-        e.commands.insertContentAt(e.state.doc.content.size, { type: 'paragraph' })
+      if (['image', 'youtubeVideo'].includes(e.state.doc.lastChild?.type.name ?? '')) {
+        e.view.dispatch(e.state.tr.insert(e.state.doc.content.size, e.schema.nodes.paragraph.create()).setMeta('addToHistory', false))
       }
       if (autoFocusEnd) requestAnimationFrame(() => e.commands.focus('end'))
     },

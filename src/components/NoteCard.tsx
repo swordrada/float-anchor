@@ -4,8 +4,7 @@ import remarkGfm from 'remark-gfm'
 import rehypeRaw from 'rehype-raw'
 import { useStore, useCardById, useIsEditing, useCardActions } from '../store'
 import RichEditor from './RichEditor'
-import YouTubePreview from './YouTubePreview'
-import { parseYouTubeUrl } from '../lib/youtube'
+import MarkdownVideoLink from './MarkdownVideoLink'
 import { measureCardHeights } from '../lib/cardMeasurement'
 
 interface Props {
@@ -362,16 +361,14 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
   )
 
   const mdComponents = useMemo<Partial<Components>>(() => ({
-    a: ({ href, children }) => {
+    a: ({ href, children, title }) => {
       if (href) {
         const faMatch = href.match(/^fa:\/\/(.+)/) || href.match(/^fa:(.+)/)
         if (faMatch) {
           return <FaCardLink targetId={faMatch[1]} />
         }
-        const video = parseYouTubeUrl(href)
-        if (video) return <YouTubePreview key={`${video.id}:${video.start}`} video={video}>{children}</YouTubePreview>
       }
-      return <a href={href} target="_blank" rel="noopener noreferrer">{children}</a>
+      return <MarkdownVideoLink href={href} title={title}>{children}</MarkdownVideoLink>
     },
     img: ({ src, alt, ...props }) => (
       <img
