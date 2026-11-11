@@ -1,5 +1,32 @@
 # 版本公告
 
+## v1.0.27
+
+发布日期：2026-11-11。
+
+本次更新改善白板标题与连线的整理体验，标题更贴近卡片，连线走向可调整，导入布局更忠实地保留原有空间关系。
+
+### 更新内容
+
+- **标题贴合更紧凑**：标题与卡片、分区及其他标题吸附时只留 4px 细缝；普通卡片间距保持 12px。支持双向吸附、边缘与中心对齐，框选拖动保持整组相对位置。
+- **标题宽度可调整**：拖动标题右侧手柄改变宽度，保留字号与高度；支持左右方向键微调及 Shift 加速。
+- **连线走向可设置**：新连线默认折线，可切换曲线或直线，指定起点、终点边缘并调整折线通道；自动走线优先使用列间通道并避开卡片。
+- **标题和分区也能连接**：右键标题或分区即可创建连线，移动、缩放后端点实时更新，删除对象时清理关联连线。
+- **更稳定的虚线显示**：使用柔和的中性细虚线，明暗主题保持清晰；缩放时虚线位置稳定，箭头与点击区域保持合适大小。
+- **改进 Heptabase 导入工具**：保留列位置、纵向错位、连线通道和手动控制点；布局调整保留每张卡片的独立宽度。附带生成独立候选文件的布局修复与卡片宽度恢复工具。
+
+### 下载与升级
+
+| 平台 | 安装包 |
+|------|--------|
+| macOS · Apple Silicon（M 系列） | [FloatAnchor-1.0.27-mac-arm64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.27/FloatAnchor-1.0.27-mac-arm64.dmg) |
+| macOS · Intel | [FloatAnchor-1.0.27-mac-x64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.27/FloatAnchor-1.0.27-mac-x64.dmg) |
+| Windows · 64 位（x64） | [FloatAnchor-1.0.27-win-setup.exe](https://github.com/swordrada/float-anchor/releases/download/v1.0.27/FloatAnchor-1.0.27-win-setup.exe) |
+
+已安装的用户可在 **设置 → 应用 → 软件更新** 中检查更新，或下载对应安装包覆盖安装。笔记保留在原来的本地数据目录，无需重新导入；已有标题可重新拖动以使用新的吸附间距。使用多设备同步时，建议各设备一起升级。
+
+[GitHub Release](https://github.com/swordrada/float-anchor/releases/tag/v1.0.27) · [与 v1.0.26 的代码差异](https://github.com/swordrada/float-anchor/compare/v1.0.26...v1.0.27)
+
 ## v1.0.26
 
 发布日期：2026-11-09；同日补入视频嵌入优化和 Windows 静默更新后重新构建。已安装 1.0.26 的用户请重新下载安装包覆盖安装。

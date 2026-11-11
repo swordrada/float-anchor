@@ -35,7 +35,7 @@
 
 以画布为单位管理不同主题，左侧导航可创建、重命名和切换画布，白板总览则帮助你快速判断每张画布的内容规模。画布中可自由放置卡片、无边框文本、横幅标题与彩色分区；卡片支持拖拽、缩放、磁吸对齐、框选自动排布、移动到其他画布，以及用连线和可跳转链接把相关想法串起来。
 
-卡片连线会根据两张卡片的位置和尺寸，自动选择四边锚点中的最短有效曲线；移动和缩放卡片时实时重算，连接预览与最终连线一致。
+新建连线默认沿列间通道走折线，同列使用上下连接，并避开中间卡片。点击或右键连线可调整走线类型、固定起终边及通道位置；移动和缩放卡片时实时更新，设置随笔记保存和同步。已有曲线保持兼容。标题也支持与卡片、分区及其他标题磁吸对齐，框选拖动仍保持整组相对位置。
 
 ### 每日记录与回顾
 
@@ -65,13 +65,13 @@
 
 ## 下载安装
 
-当前稳定版为 **[`v1.0.26`](https://github.com/swordrada/float-anchor/releases/tag/v1.0.26)**，采用纯白底与微光海蓝 F 标志，适配明暗主题，并保留分区外观设置、最佳大小整理、连线、视频预览和批量同步功能，提供 macOS（Apple Silicon / Intel）和 Windows 64 位安装包。完整变更见 [版本公告](CHANGELOG.md#v1026)。
+当前稳定版为 **[`v1.0.27`](https://github.com/swordrada/float-anchor/releases/tag/v1.0.27)**，新增标题宽度调整、紧凑标题磁吸和可调连线走线，优化虚线显示与 Heptabase 导入布局，保留视频预览和批量同步功能，提供 macOS（Apple Silicon / Intel）和 Windows 64 位安装包。完整变更见 [版本公告](CHANGELOG.md#v1027)。
 
 | 文件 | 平台 | 适用设备 |
 |------|------|----------|
-| [FloatAnchor-1.0.26-mac-arm64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.26/FloatAnchor-1.0.26-mac-arm64.dmg) | macOS | Apple Silicon（M 系列） |
-| [FloatAnchor-1.0.26-mac-x64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.26/FloatAnchor-1.0.26-mac-x64.dmg) | macOS | Intel Mac |
-| [FloatAnchor-1.0.26-win-setup.exe](https://github.com/swordrada/float-anchor/releases/download/v1.0.26/FloatAnchor-1.0.26-win-setup.exe) | Windows | 64 位 Windows（x64） |
+| [FloatAnchor-1.0.27-mac-arm64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.27/FloatAnchor-1.0.27-mac-arm64.dmg) | macOS | Apple Silicon（M 系列） |
+| [FloatAnchor-1.0.27-mac-x64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.27/FloatAnchor-1.0.27-mac-x64.dmg) | macOS | Intel Mac |
+| [FloatAnchor-1.0.27-win-setup.exe](https://github.com/swordrada/float-anchor/releases/download/v1.0.27/FloatAnchor-1.0.27-win-setup.exe) | Windows | 64 位 Windows（x64） |
 
 已安装的用户可在 **设置 → 应用 → 软件更新** 中检查更新。如果旧版本无法发现更新，可直接下载对应平台安装包，退出应用后覆盖安装；笔记仍保存在原来的本地数据目录。
 
@@ -121,6 +121,7 @@ Windows 版下载更新后会先保存当前编辑，在原安装目录静默升
 - **编辑卡片** — **双击** 卡片进入编辑模式，或 hover 卡片顶部灰色条时点击铅笔图标
 - **移动卡片** — hover 卡片顶部出现灰色拖拽条，按住拖动到任意位置；靠近其他卡片时自动磁吸对齐，保持统一间距
 - **缩放卡片** — hover 卡片右下角出现缩放手柄（↗↙ 箭头光标），拖拽调整大小
+- **调整标题宽度** — 鼠标靠近标题右侧边缘显示左右箭头，拖动可拉长或缩短；Tab 聚焦手柄后，可用左右方向键微调，按住 Shift 加速。
 - **删除卡片** — hover 卡片顶部灰色条时，点击右侧垃圾桶图标
 - **右键菜单** — 在卡片上右键（macOS 双指点击），可进行最佳大小调整、拷贝链接、移动到其他画布、连接卡片、编辑和删除；菜单项右侧会标注对应快捷键
 - **画布右键菜单** — 在画布空白处右键，可创建空白卡片、创建文本、创建标题、创建分区
@@ -320,3 +321,16 @@ Electron + React + TypeScript + Vite + TipTap + Zustand
 ## License
 
 [MIT License](LICENSE) — 完全开源，自由使用、修改和分发。
+
+
+Heptabase 迁移会保留卡片、标题与分区间的连线、原始列间通道、固定连接边及手动转折点。连线默认使用清晰的灰蓝色，线宽随白板缩放补偿；可右键卡片、标题或分区选择“连接”。
+
+对于已导入的旧数据，可用只读 Heptabase 数据库生成布局修复候选（不改正文、不重新创建已删除笔记）：
+
+```bash
+python3 scripts/repair-heptabase-layout.py --all --database /path/to/hepta.db --data /path/to/float-anchor.json --output /path/to/repaired.json --report /path/to/report.json
+```
+
+修复保留每张 FloatAnchor 卡片当前宽度（默认 373px 或手动设置的宽度），不使用 Heptabase 的宽度覆盖它，也不随布局比例拉宽。如已在当前 FloatAnchor 卡片宽度下测量正文高度，可用 `--measured-heights /path/to/heights.json` 传入卡片 ID 到高度的映射。修复会同步拉开纵向间距与连线转折点，保留列布局并容纳正文。
+
+先检查报告并备份原数据，再正常保存、退出 FloatAnchor 后替换数据文件。支持用 `--canvas '章节名'` 代替 `--all`；遇到无法明确匹配的对象或连线端点会中止。

@@ -1,4 +1,6 @@
-import type { Card } from './types'
+import type { Card, ConnectionRoute } from './types'
+import { getPlannedConnection } from './orthogonalRouting'
+import { anchorAt, sourceConnectionSides } from './connectionAnchors'
 
 type CardBounds = Pick<Card, 'x' | 'y' | 'width' | 'height'>
 type Side = 'left' | 'right' | 'top' | 'bottom'
@@ -66,14 +68,35 @@ function curveLength(curve: ReturnType<typeof makeCurve>): number {
   return length
 }
 
-export function getConnectionGeometry(from: CardBounds, to: CardBounds) {
+export function getConnectionGeometry(from: CardBounds, to: CardBounds, route: ConnectionRoute = {}, obstacles: CardBounds[] = []) {
+  if (route.routing === 'elbow' || route.routing === 'straight') return getPlannedConnection(from, to, route, obstacles)
+  if (route.anchorMode === 'heptabase' || route.controlPoints?.length) {
+    const [fromSide, toSide] = sourceConnectionSides(from, to, route)
+    const start = anchorAt(from, fromSide), end = anchorAt(to, toSide)
+    const points: Point[] = [start, ...(route.controlPoints ?? []), end]
+    // Interpolate source waypoints, retaining endpoint tangents and smooth joins.
+    const curves = points.slice(1).map((p, i) => {
+      const previous = points[i], before = points[Math.max(0, i-1)], after = points[Math.min(points.length-1, i+2)]
+      const handle = Math.hypot(p.x-previous.x, p.y-previous.y) / 3
+      const c1 = i === 0
+        ? { x: previous.x+normals[start.side].x*handle, y: previous.y+normals[start.side].y*handle }
+        : { x: previous.x+(p.x-before.x)/6, y: previous.y+(p.y-before.y)/6 }
+      const c2 = i === points.length-2
+        ? { x: p.x+normals[end.side].x*handle, y: p.y+normals[end.side].y*handle }
+        : { x: p.x-(after.x-previous.x)/6, y: p.y-(after.y-previous.y)/6 }
+      return { c1, c2, end: p }
+    })
+    return { start, end, c1: curves[0].c1, c2: curves[curves.length-1].c2,
+      midpoint: route.controlPoints?.[Math.floor(route.controlPoints.length/2)] ?? curvePoint(start, curves[0].c1, curves[0].c2, end, 0.5),
+      path: `M ${start.x} ${start.y} ` + curves.map(c => `C ${c.c1.x} ${c.c1.y}, ${c.c2.x} ${c.c2.y}, ${c.end.x} ${c.end.y}`).join(' ') }
+  }
   let best: ReturnType<typeof makeCurve> | undefined
   let bestLength = Infinity
   let closest: ReturnType<typeof makeCurve> | undefined
   let closestDistance = Infinity
 
-  for (const start of anchors(from)) {
-    for (const end of anchors(to)) {
+  for (const start of anchors(from).filter(a => !route.fromSide || route.fromSide === 'auto' || a.side === route.fromSide)) {
+    for (const end of anchors(to).filter(a => !route.toSide || route.toSide === 'auto' || a.side === route.toSide)) {
       const distance = Math.hypot(end.x - start.x, end.y - start.y)
       if (distance < closestDistance) {
         closestDistance = distance
@@ -96,6 +119,6 @@ export function getConnectionGeometry(from: CardBounds, to: CardBounds) {
   return best ?? closest!
 }
 
-export function getConnectionPreview(from: CardBounds, pointer: Point, target?: CardBounds) {
-  return getConnectionGeometry(from, target ?? { ...pointer, width: 0, height: 0 })
+export function getConnectionPreview(from: CardBounds, pointer: Point, target?: CardBounds, route: ConnectionRoute = {}, obstacles: CardBounds[] = []) {
+  return getConnectionGeometry(from, target ?? { ...pointer, width: 0, height: 0 }, route, obstacles)
 }

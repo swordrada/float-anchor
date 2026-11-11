@@ -9,6 +9,7 @@ export interface Card {
   /** Creation order used while instant-mode cards are still auto-laid out. */
   instantOrder?: number
   sourceId?: string
+  sourceInstanceId?: string
 }
 
 export interface InstantModeTarget { requestId: number; cardId: string | null }
@@ -63,10 +64,25 @@ export interface TextBox {
   sourceId?: string
 }
 
-export interface Connection {
+export type ConnectionSide = 'auto' | 'left' | 'right' | 'top' | 'bottom'
+export interface ConnectionRoute {
+  routing?: 'curve' | 'elbow' | 'straight'
+  fromSide?: ConnectionSide
+  toSide?: ConnectionSide
+  /** Offset from the midpoint of the gap, so the lane follows moved cards. */
+  laneOffset?: number
+  /** Explicit canvas lanes imported from a manually planned Heptabase route. */
+  controlPoints?: { direction?: 'horizontal' | 'vertical'; x: number; y: number }[]
+  /** Preserve the source application's automatic endpoint choices after moving objects. */
+  anchorMode?: 'heptabase'
+}
+
+export interface Connection extends ConnectionRoute {
   id: string
+  /** Historical field names; IDs can also refer to a label or section. */
   fromCardId: string
   toCardId: string
+  sourceId?: string
 }
 
 export interface CanvasViewport {

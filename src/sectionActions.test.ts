@@ -73,4 +73,20 @@ describe('分区外观与最佳大小的保存集成', () => {
     expect(useStore.getState().canvases).toBe(before)
     expect(window.electronAPI.writeData).not.toHaveBeenCalled()
   })
+
+  it('创建时默认 373px 与手动宽度在反复最佳大小及保存后均保持不变', async () => {
+    useStore.getState().addCard(100, 100)
+    const created = useStore.getState().canvases[0].cards.at(-1)!
+    expect(created.width).toBe(373)
+    useStore.getState().updateCard('b', { width: 640 })
+    useStore.getState().updateSection('s', { cardIds: [created.id, 'b'] })
+    const heights = { [created.id]: 220, b: 430 }
+    useStore.getState().compactSection('s', heights)
+    useStore.getState().compactSection('s', heights)
+    await useStore.getState().flushPendingSave()
+    const saved = vi.mocked(window.electronAPI.writeData).mock.calls.at(-1)![0]
+    const widths = Object.fromEntries(saved.canvases[0].cards.map(c => [c.id, c.width]))
+    expect(widths[created.id]).toBe(373)
+    expect(widths.b).toBe(640)
+  })
 })

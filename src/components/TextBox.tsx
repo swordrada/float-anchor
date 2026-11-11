@@ -146,7 +146,7 @@ const TextBoxComponent = React.memo(function TextBoxComponent({ text, scale, sel
       {isEditing ? (
         <textarea
           ref={textareaRef}
-          className="text-edit-input"
+          className="text-edit-input resize-none"
           value={editText}
           onChange={(e) => { setEditText(e.target.value); autoGrow(e.target) }}
           onBlur={commitEdit}

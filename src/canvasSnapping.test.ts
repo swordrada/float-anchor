@@ -35,7 +35,7 @@ describe('canvas magnetic alignment', () => {
   })
 })
 
-describe('persisted title actions', () => {
+describe('persisted title and connection actions', () => {
   beforeEach(() => {
     vi.useFakeTimers()
     vi.stubGlobal('window',{electronAPI:{writeData:vi.fn().mockResolvedValue(true)}})
@@ -45,5 +45,15 @@ describe('persisted title actions', () => {
   it('applies title snapping through the store', () => {
     useStore.getState().moveLabel('title',102,card.y-labelHeight(label)-2)
     expect(useStore.getState().canvases[0].labels![0]).toMatchObject({x:100,y:card.y-labelHeight(label)-4})
+  })
+  it('retains routing metadata through edits and persistence', async () => {
+    const store = useStore.getState()
+    store.addConnection('card','title')
+    const connection = useStore.getState().canvases[0].connections![0]
+    expect(connection.routing).toBe('elbow')
+    store.updateConnection(connection.id,{fromSide:'right',toSide:'left',laneOffset:24})
+    await store.flushPendingSave()
+    const saved = vi.mocked(window.electronAPI.writeData).mock.calls.at(-1)![0]
+    expect(saved.canvases[0].connections![0]).toMatchObject({routing:'elbow',fromSide:'right',toSide:'left',laneOffset:24})
   })
 })

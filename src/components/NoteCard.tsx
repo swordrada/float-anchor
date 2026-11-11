@@ -76,7 +76,7 @@ function FaCardLink({ targetId }: { targetId: string }) {
   }
   return (
     <a
-      href="#"
+      href={`fa://${targetId}`}
       className="fa-card-link"
       onClick={(e: React.MouseEvent) => {
         e.preventDefault()

@@ -1,3 +1,4 @@
+import { connectionNodes, withoutConnectionsTo } from './connectionNodes'
 import { contentFingerprint } from './lib/syncData'
 import { create } from 'zustand'
 import { shallow } from 'zustand/shallow'
@@ -289,6 +290,7 @@ interface AppState {
   finalizeCardMove: (cardId: string) => void
 
   addConnection: (fromCardId: string, toCardId: string) => void
+  updateConnection: (connId: string, patch: Partial<Pick<Connection, 'routing' | 'fromSide' | 'toSide' | 'laneOffset' | 'controlPoints'>>) => void
   deleteConnection: (connId: string) => void
 
   saveViewport: (canvasId: string, viewport: CanvasViewport) => void
@@ -1084,7 +1086,7 @@ export const useStore = create<AppState>((set, get) => ({
     set((s) => ({
       canvases: s.canvases.map((c) =>
         c.id === activeCanvasId
-          ? { ...c, labels: (c.labels ?? []).filter((l) => l.id !== labelId) }
+          ? { ...c, labels: (c.labels ?? []).filter((l) => l.id !== labelId), connections: withoutConnectionsTo(c.connections, new Set([labelId])) }
           : c,
       ),
     }))
@@ -1175,7 +1177,7 @@ export const useStore = create<AppState>((set, get) => ({
     set((s) => ({
       canvases: s.canvases.map((c) =>
         c.id === activeCanvasId
-          ? { ...c, sections: (c.sections ?? []).filter((sec) => sec.id !== sectionId) }
+          ? { ...c, sections: (c.sections ?? []).filter((sec) => sec.id !== sectionId), connections: withoutConnectionsTo(c.connections, new Set([sectionId])) }
           : c,
       ),
     }))
@@ -1387,9 +1389,7 @@ export const useStore = create<AppState>((set, get) => ({
           cards: c.cards.filter((cd) => !cardIds.has(cd.id)),
           labels: (c.labels ?? []).filter((l) => !labelIds.has(l.id)),
           texts: (c.texts ?? []).filter((t) => !textIds.has(t.id)),
-          connections: (c.connections ?? []).filter(
-            (cn) => !cardIds.has(cn.fromCardId) && !cardIds.has(cn.toCardId),
-          ),
+          connections: withoutConnectionsTo(c.connections, new Set([...cardIds, ...labelIds, ...sectionIds])),
           sections: (c.sections ?? [])
             .filter((sec) => !sectionIds.has(sec.id))
             .map((sec) => {
@@ -1439,9 +1439,11 @@ export const useStore = create<AppState>((set, get) => ({
     if (!activeCanvasId || fromCardId === toCardId) return
     const canvas = get().canvases.find((c) => c.id === activeCanvasId)
     if (!canvas) return
+    const nodes = connectionNodes(canvas)
+    if (!nodes.has(fromCardId) || !nodes.has(toCardId)) return
     const exists = (canvas.connections ?? []).some((c) => c.fromCardId === fromCardId && c.toCardId === toCardId)
     if (exists) return
-    const conn: Connection = { id: uuid(), fromCardId, toCardId }
+    const conn: Connection = { id: uuid(), fromCardId, toCardId, routing: 'elbow' }
     set((s) => ({
       canvases: s.canvases.map((c) =>
         c.id === activeCanvasId
@@ -1449,6 +1451,13 @@ export const useStore = create<AppState>((set, get) => ({
           : c,
       ),
     }))
+    get().persist()
+  },
+
+  updateConnection: (connId, patch) => {
+    set(s => ({ canvases: s.canvases.map(c => c.id === s.activeCanvasId
+      ? { ...c, connections: (c.connections ?? []).map(conn => conn.id === connId ? { ...conn, ...patch } : conn) }
+      : c) }))
     get().persist()
   },
 

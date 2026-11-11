@@ -17,6 +17,8 @@
   --text-primary: #2c2c2c;
   --text-secondary: #777;
   --text-muted: #aaa;
+  --connection: #2c2c2c;
+  --connection-active: #111111;
   --accent: #4a90d9;
   --accent-light: #e8f0fb;
   --danger: #e55c5c;
@@ -41,6 +43,8 @@
   --text-primary: #e0e0e4;
   --text-secondary: #999;
   --text-muted: #666;
+  --connection: #b8b8b8;
+  --connection-active: #e2e2e2;
   --accent: #5a9fe6;
   --accent-light: #1e2d40;
   --danger: #e06060;
@@ -2180,10 +2184,65 @@ input {
   padding-bottom: 2px;
 }
 
+.canvas-label.resizing {
+  border-color: var(--accent);
+  cursor: ew-resize;
+  z-index: 100;
+}
+
+.label-resize-handle {
+  position: absolute;
+  top: 50%;
+  right: -12px;
+  width: 24px;
+  height: max(24px, calc(100% - 8px));
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: ew-resize;
+  touch-action: none;
+  z-index: 1;
+}
+
+.label-resize-handle svg {
+  opacity: 0;
+  flex-shrink: 0;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--card-bg);
+  box-shadow: var(--shadow-sm);
+}
+
+.label-resize-handle:hover svg,
+.label-resize-handle:focus-visible svg,
+.canvas-label.resizing .label-resize-handle svg {
+  opacity: 1;
+}
+
+.label-resize-handle:hover,
+.canvas-label.resizing .label-resize-handle {
+  color: var(--accent);
+}
+
+.label-resize-handle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (hover: none) {
+  .label-resize-handle svg { opacity: 1; }
+}
+
 .label-actions {
   position: absolute;
-  top: -4px;
-  right: -8px;
+  top: -20px;
+  right: 0;
   display: flex;
   gap: 2px;
 }
@@ -2251,6 +2310,8 @@ input {
 .text-content.placeholder {
   color: var(--text-muted);
 }
+
+.resize-none { resize: none; }
 
 .text-edit-input {
   width: 100%;
@@ -2505,26 +2566,32 @@ input {
 .conn-hit-area {
   fill: none;
   stroke: transparent;
-  stroke-width: 16;
+  stroke-width: calc(16px / var(--canvas-scale, 1));
   cursor: pointer;
 }
 
 .conn-line {
   fill: none;
-  stroke: #ccc;
-  stroke-width: 1.5;
+  stroke: var(--connection);
+  opacity: 0.8;
+  stroke-width: calc(1.1px / var(--canvas-scale, 1));
+  /* Keep dashes anchored to the path: zoom compensation would reflow them.
+     Heptabase also uses a 16 / 6 pattern in canvas coordinates. */
+  stroke-dasharray: 16 6;
+  stroke-dashoffset: 0;
+  /* Flat caps preserve the gaps even at the 15% overview zoom. */
+  stroke-linecap: butt;
+  stroke-linejoin: round;
   transition: stroke 0.15s;
 }
 
 .conn-line.active {
-  stroke: var(--accent);
-  stroke-width: 2;
+  stroke: var(--connection-active);
+  stroke-width: calc(1.35px / var(--canvas-scale, 1));
 }
 
 .conn-line.conn-preview {
-  stroke: var(--accent);
-  stroke-width: 1.5;
-  stroke-dasharray: 6 4;
+  stroke: var(--connection);
   opacity: 0.7;
   pointer-events: none;
 }
@@ -2584,6 +2651,10 @@ input {
 }
 
 /* ===== Scrollbar Global ===== */
+:root { --scrollbar-thumb: rgba(0, 0, 0, 0.12); }
+[data-theme="dark"] { --scrollbar-thumb: rgba(255, 255, 255, 0.12); }
+* { scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
+
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -2637,14 +2708,6 @@ input {
 [data-theme="dark"] .canvas-viewport {
   background-color: #1e1e22;
   background-image: radial-gradient(circle, #3a3a40 1px, transparent 1px);
-}
-
-[data-theme="dark"] .conn-line {
-  stroke: #555;
-}
-
-[data-theme="dark"] .conn-line.active {
-  stroke: var(--accent);
 }
 
 [data-theme="dark"] .conn-delete-btn {
@@ -4560,3 +4623,21 @@ input {
 .instant-mode-shell button:focus-visible { outline: 2px solid var(--instant-accent); outline-offset: 2px; }
 .instant-mode-shell button:disabled { cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) { .instant-mode-shell *, .card-instant-btn { animation: none !important; transition: none !important; } }
+
+/* Connection planning shares the canvas toolbar's neutral controls. */
+.connection-toolbar {
+  position: absolute; z-index: 200; top: 58px; left: 16px; right: 16px;
+  width: fit-content; max-width: calc(100% - 32px); display: flex; flex-wrap: wrap;
+  align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border);
+  border-radius: var(--radius-sm); background: var(--card-bg); box-shadow: var(--shadow-sm);
+  color: var(--text-primary); font-size: 12px;
+}
+.connection-toolbar label, .connection-lane-controls { display: flex; gap: 6px; align-items: center; }
+.connection-toolbar select, .connection-toolbar button {
+  border: 1px solid var(--border); border-radius: 4px; padding: 5px 7px;
+  background: var(--card-bg); color: var(--text-primary); font: inherit; cursor: pointer;
+}
+.connection-toolbar button:hover, .connection-toolbar select:hover { background: var(--accent-light); }
+.connection-toolbar :focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.connections-layer g:focus-visible { outline: 2px solid var(--connection-active); outline-offset: 3px; }
+.connections-layer g:focus-visible .conn-line { stroke: var(--connection-active); }

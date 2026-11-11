@@ -16,6 +16,7 @@ import re
 import time
 from pathlib import Path
 from typing import Optional
+from heptabase_layout import connection_route, restore_layout, transform_routes
 
 
 FA_DEFAULT_WIDTH = 373
@@ -345,59 +346,6 @@ def estimate_card_height(title: str, content: str, width: int = FA_DEFAULT_WIDTH
     return min(max(80, h), 2000)
 
 
-def cards_overlap(a, b):
-    aw, ah = a["width"], a.get("height", 200)
-    bw, bh = b["width"], b.get("height", 200)
-    return (a["x"] < b["x"] + bw + FA_GAP and
-            a["x"] + aw + FA_GAP > b["x"] and
-            a["y"] < b["y"] + bh + FA_GAP and
-            a["y"] + ah + FA_GAP > b["y"])
-
-
-def fix_overlaps(cards: list) -> list:
-    """Compact magnetic layout: cluster into columns, ensure FA_GAP spacing, stack tightly."""
-    if len(cards) <= 1:
-        return cards
-
-    cards.sort(key=lambda c: (c["x"], c["y"]))
-    col_threshold = FA_DEFAULT_WIDTH * 0.6
-
-    # 1) Cluster cards into columns by x proximity
-    columns = []
-    for card in cards:
-        placed_in_col = False
-        for col in columns:
-            if abs(card["x"] - col[0]["x"]) < col_threshold:
-                col.append(card)
-                placed_in_col = True
-                break
-        if not placed_in_col:
-            columns.append([card])
-
-    # 2) Reassign column x positions: preserve relative order, ensure FA_GAP between columns
-    columns.sort(key=lambda col: col[0]["x"])
-    for ci, col in enumerate(columns):
-        if ci == 0:
-            col_x = col[0]["x"]
-        else:
-            prev_right = columns[ci-1][0]["x"] + FA_DEFAULT_WIDTH
-            desired_x = col[0]["x"]
-            col_x = max(desired_x, prev_right + FA_GAP)
-        for card in col:
-            card["x"] = round(col_x, 2)
-
-    # 3) For each column, keep relative y order and compact tightly
-    global_top = min(c["y"] for c in cards)
-    for col in columns:
-        col.sort(key=lambda c: c["y"])
-        cursor_y = global_top
-        for card in col:
-            card["y"] = round(cursor_y, 2)
-            cursor_y += card.get("height", 200) + FA_GAP
-
-    return [c for col in columns for c in col]
-
-
 def default_output_path() -> str:
     if sys.platform == "darwin":
         base = os.path.expanduser("~/Library/Application Support/float-anchor/data")
@@ -631,12 +579,13 @@ def main():
                 "width": FA_DEFAULT_WIDTH,
                 "height": est_height,
                 "sourceId": f"hepta:{ci['cardId']}",
+                "sourceInstanceId": f"hepta:{ci['id']}",
             }
 
             cards.append(fa_card)
 
-        cards = fix_overlaps(cards)
-        scale = 1.0
+        # Keep original column offsets and the empty corridors used by connections.
+        instance_by_fa = {ci_id_to_fa_id[ci["id"]]: ci for ci in instances if ci["id"] in ci_id_to_fa_id}
 
         fa_sections = []
         h_sections = wb_sections.get(wb["id"], [])
@@ -714,20 +663,36 @@ def main():
                 "sourceId": f"hepta:{te['id']}",
             })
 
+        endpoint_ids = {**ci_id_to_fa_id, **h_sec_id_to_fa_id,
+                        **{label['sourceId'][6:]: label['id'] for label in fa_labels}}
         fa_connections = []
         h_conns = wb_connections.get(wb["id"], [])
         for hc in h_conns:
             begin_id = hc.get("beginId", "")
             end_id = hc.get("endId", "")
-            from_fa = ci_id_to_fa_id.get(begin_id)
-            to_fa = ci_id_to_fa_id.get(end_id)
+            from_fa = endpoint_ids.get(begin_id)
+            to_fa = endpoint_ids.get(end_id)
             if from_fa and to_fa and from_fa != to_fa:
                 fa_connections.append({
                     "id": str(uuid.uuid4()),
                     "fromCardId": from_fa,
                     "toCardId": to_fa,
                     "sourceId": f"hepta:{hc.get('id', '')}",
+                    **connection_route(hc),
+                    "anchorMode": "heptabase",
                 })
+            else:
+                print(f"  Warning: skipped connection {hc.get('id', '')}: endpoint is not an imported card, title, or section")
+
+        text_by_id = {te['id']: te for te in h_text_elements}
+        section_by_id = {sec['id']: sec for sec in h_sections}
+        scale_x, scale_y = restore_layout(
+            [(card, instance_by_fa[card['id']]) for card in cards],
+            [(label, text_by_id[label['sourceId'][6:]]) for label in fa_labels],
+            [(section, section_by_id[section['sourceId'][6:]]) for section in fa_sections],
+        )
+
+        transform_routes(fa_connections, scale_x, scale_y)
 
         canvas = {
             "id": canvas_id,
@@ -766,21 +731,30 @@ def main():
         id_remap maps new_item_id -> existing_item_id for items that were updated.
         """
         source_map = {}
+        legacy_sources = {}
         for i, item in enumerate(existing_items):
-            sid = item.get("sourceId")
+            sid = item.get("sourceInstanceId") or item.get("sourceId")
             if sid:
                 source_map[sid] = i
+            if item.get('sourceId') and not item.get('sourceInstanceId'):
+                legacy_sources.setdefault(item['sourceId'], []).append(i)
 
         updated = 0
         added = 0
         id_remap = {}
         for new_item in new_items:
-            sid = new_item.get("sourceId")
-            if sid and sid in source_map:
-                old_id = existing_items[source_map[sid]]["id"]
+            sid = new_item.get("sourceInstanceId") or new_item.get("sourceId")
+            legacy = legacy_sources.get(new_item.get('sourceId'), [])
+            index = source_map.get(sid)
+            if index is None and len(legacy) == 1:
+                index = legacy[0]
+                legacy_sources.pop(new_item['sourceId'], None)
+                source_map.pop(new_item['sourceId'], None)
+            if index is not None:
+                old_id = existing_items[index]["id"]
                 id_remap[new_item["id"]] = old_id
                 new_item["id"] = old_id
-                existing_items[source_map[sid]] = new_item
+                existing_items[index] = new_item
                 updated += 1
             else:
                 existing_items.append(new_item)
@@ -792,25 +766,29 @@ def main():
         u_cards, a_cards, card_remap = _merge_list(
             existing_canvas.get("cards", []), new_canvas.get("cards", [])
         )
-        u_labels, a_labels, _ = _merge_list(
+        u_labels, a_labels, label_remap = _merge_list(
             existing_canvas.setdefault("labels", []),
             new_canvas.get("labels", [])
         )
         for sec in new_canvas.get("sections", []):
             if "cardIds" in sec:
                 sec["cardIds"] = [card_remap.get(cid, cid) for cid in sec["cardIds"]]
-        u_sections, a_sections, _ = _merge_list(
+        u_sections, a_sections, section_remap = _merge_list(
             existing_canvas.setdefault("sections", []),
             new_canvas.get("sections", [])
         )
-        old_conn_src = {c.get("sourceId") for c in existing_canvas.get("connections", []) if c.get("sourceId")}
+        endpoint_remap = {**card_remap, **label_remap, **section_remap}
+        old_conn_src = {c["sourceId"]: c for c in existing_canvas.get("connections", []) if c.get("sourceId")}
         new_conns = new_canvas.get("connections", [])
         added_conns = 0
         for nc in new_conns:
-            nc["fromCardId"] = card_remap.get(nc["fromCardId"], nc["fromCardId"])
-            nc["toCardId"] = card_remap.get(nc["toCardId"], nc["toCardId"])
+            nc["fromCardId"] = endpoint_remap.get(nc["fromCardId"], nc["fromCardId"])
+            nc["toCardId"] = endpoint_remap.get(nc["toCardId"], nc["toCardId"])
             sid = nc.get("sourceId")
             if sid and sid in old_conn_src:
+                old_id = old_conn_src[sid]["id"]
+                for key in ["controlPoints", "laneOffset"]: old_conn_src[sid].pop(key, None)
+                old_conn_src[sid].update(nc, id=old_id)
                 continue
             existing_canvas.setdefault("connections", []).append(nc)
             added_conns += 1

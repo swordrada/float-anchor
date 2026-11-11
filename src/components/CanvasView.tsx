@@ -1,6 +1,7 @@
 import { useRef, useState, useCallback, useEffect, useMemo } from 'react'
 import { useStore, useActiveCanvasMeta, useActiveCards, useActiveConnections, useActiveLabels, useActiveSections, useHighlightCard, useSettings, useActiveTexts } from '../store'
 import NoteCard from './NoteCard'
+import ConnectionToolbar from './ConnectionToolbar'
 import CanvasLabelComponent from './CanvasLabel'
 import TextBoxComponent from './TextBox'
 import SectionBox from './SectionBox'
@@ -16,6 +17,7 @@ import { expandCardIdsForSelectedSections } from '../canvasSelection'
 import { getSearchTargetBounds, getSearchTargetViewport } from '../lib/searchNavigation'
 import type { SearchNavigationTarget } from '../lib/searchNavigation'
 import { getConnectionGeometry, getConnectionPreview } from '../connectionGeometry'
+import { connectionNodes, connectionTarget } from '../connectionNodes'
 import { canvasSnapRects, snapCanvasRects, labelHeight } from '../canvasSnapping'
 import { measureCardHeights } from '../lib/cardMeasurement'
 import { useFitSections } from '../useFitSections'
@@ -186,6 +188,7 @@ export default function CanvasView() {
   const setEditingCard = useStore((s) => s.setEditingCard)
   const addConnection = useStore((s) => s.addConnection)
   const deleteConnection = useStore((s) => s.deleteConnection)
+  const updateConnection = useStore((s) => s.updateConnection)
   const addLabel = useStore((s) => s.addLabel)
   const addText = useStore((s) => s.addText)
   const arrangeUnits = useStore((s) => s.arrangeUnits)
@@ -206,7 +209,7 @@ export default function CanvasView() {
   const texts = useActiveTexts()
   const sections = useActiveSections()
   const settings = useSettings()
-  const arrowColor = settings.theme === 'dark' ? '#888' : '#bbb'
+  const nodes = useMemo(() => connectionNodes({ cards, labels, sections }), [cards, labels, sections])
 
   const viewportRef = useRef<HTMLDivElement>(null)
   const innerRef = useRef<HTMLDivElement>(null)
@@ -234,6 +237,8 @@ export default function CanvasView() {
   const [connectingFrom, setConnectingFrom] = useState<string | null>(null)
   const [connectingMouse, setConnectingMouse] = useState<{ x: number; y: number } | null>(null)
   const [connectingTo, setConnectingTo] = useState<string | null>(null)
+  const [selectedConn, setSelectedConn] = useState<string | null>(null)
+  useEffect(() => { setSelectedConn(null) }, [meta?.id])
   const [hoveredConn, setHoveredConn] = useState<string | null>(null)
 
   const [selection, setSelection] = useState<SelectionSet>(emptySelection)
@@ -255,6 +260,7 @@ export default function CanvasView() {
     const el = innerRef.current
     if (el) {
       el.style.willChange = 'transform'
+      el.style.setProperty('--canvas-scale', String(scaleVal.current))
       el.style.transform =
         `translate3d(${pan.current.x}px,${pan.current.y}px,0) scale(${scaleVal.current})`
 
@@ -759,7 +765,7 @@ export default function CanvasView() {
     const onMove = (e: MouseEvent) => {
       const coords = toCanvasCoords(e.clientX, e.clientY)
       setConnectingMouse(coords)
-      const targetId = (e.target as Element).closest('.note-card')?.getAttribute('data-card-id')
+      const targetId = connectionTarget(e.target as Element)
       setConnectingTo(targetId && targetId !== connectingFrom ? targetId : null)
     }
     document.addEventListener('mousemove', onMove)
@@ -800,6 +806,11 @@ export default function CanvasView() {
       return
     }
 
+    const labelId = (e.target as Element).closest('[data-label-id]')?.getAttribute('data-label-id')
+    if (labelId) {
+      setCtxMenu({ x: e.clientX, y: e.clientY, items: [{ label: '连接', onClick: () => setConnectingFrom(labelId) }] })
+      return
+    }
     const noteCard = (e.target as HTMLElement).closest('.note-card')
 
     if (noteCard) {
@@ -878,6 +889,10 @@ export default function CanvasView() {
               shortcut: scKey('compactSection'),
               icon: <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" /></svg>,
               onClick: () => fitSections([hitSection.id]),
+            },
+            {
+              label: '连接',
+              onClick: () => setConnectingFrom(hitSection.id),
             },
             {
               label: '分区颜色与外观…',
@@ -1111,16 +1126,15 @@ export default function CanvasView() {
   }, [cards, cullTick, vpW, vpH])
 
   const connectionPaths = useMemo(() => {
-    const cardMap = new Map(cards.map((c) => [c.id, c]))
     return connections
       .map((conn) => {
-        const from = cardMap.get(conn.fromCardId)
-        const to = cardMap.get(conn.toCardId)
+        const from = nodes.get(conn.fromCardId)
+        const to = nodes.get(conn.toCardId)
         if (!from || !to) return null
-        return { ...conn, ...getConnectionGeometry(from, to) }
+        return { ...conn, ...getConnectionGeometry(from, to, conn, cards) }
       })
       .filter(Boolean) as (Connection & ReturnType<typeof getConnectionGeometry>)[]
-  }, [cards, connections])
+  }, [nodes, cards, connections])
 
   if (!meta) {
     return (
@@ -1139,6 +1153,15 @@ export default function CanvasView() {
 
   return (
     <main className="canvas-main">
+      {connections.find(c => c.id === selectedConn) && <ConnectionToolbar
+        connection={connections.find(c => c.id === selectedConn)!}
+        onChange={patch => updateConnection(selectedConn!, patch)}
+        onClose={() => {
+          const element = innerRef.current?.querySelector<SVGElement>(`[data-connection-id="${selectedConn}"]`)
+          setSelectedConn(null)
+          element?.focus()
+        }}
+      />}
       <div className="canvas-toolbar">
         <h2 className="canvas-toolbar-title">{meta.name}</h2>
         <div className="toolbar-right">
@@ -1150,6 +1173,13 @@ export default function CanvasView() {
       <div
         ref={viewportRef}
         className={`canvas-viewport ${isPanDragging ? 'panning' : ''} ${connectingFrom ? 'connecting' : ''}`}
+        onMouseDownCapture={e => {
+          if (!connectingFrom || e.button !== 0) return
+          e.stopPropagation(); e.preventDefault()
+          const targetId = connectionTarget(e.target as Element)
+          if (targetId && targetId !== connectingFrom) addConnection(connectingFrom, targetId)
+          setConnectingFrom(null)
+        }}
         onMouseDown={handleMouseDown}
         onDoubleClick={handleDoubleClick}
         onContextMenu={handleContextMenu}
@@ -1183,18 +1213,20 @@ export default function CanvasView() {
 
           <svg className="connections-layer">
             <defs>
-              <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                <polygon points="0 0, 10 3.5, 0 7" fill={arrowColor} />
+              {/* Stroke-relative markers track the compensated line width in the
+                  same frame as zoom, without waiting for a React render. */}
+              <marker id="arrowhead" markerUnits="strokeWidth" viewBox="0 0 10 7" markerWidth="5.5" markerHeight="3.85" refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="var(--connection)" />
               </marker>
-              <marker id="arrowhead-active" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-                <polygon points="0 0, 10 3.5, 0 7" fill="var(--accent)" />
+              <marker id="arrowhead-active" markerUnits="strokeWidth" viewBox="0 0 10 7" markerWidth="5.5" markerHeight="3.85" refX="9" refY="3.5" orient="auto">
+                <polygon points="0 0, 10 3.5, 0 7" fill="var(--connection-active)" />
               </marker>
             </defs>
             {connectingFrom && connectingMouse && (() => {
-              const fromCard = cards.find((c) => c.id === connectingFrom)
+              const fromCard = nodes.get(connectingFrom)
               if (!fromCard) return null
-              const targetCard = cards.find((c) => c.id === connectingTo)
-              const { path } = getConnectionPreview(fromCard, connectingMouse, targetCard)
+              const targetCard = connectingTo ? nodes.get(connectingTo) : undefined
+              const { path } = getConnectionPreview(fromCard, connectingMouse, targetCard, { routing: 'elbow' }, cards)
               return (
                 <path
                   d={path}
@@ -1204,15 +1236,21 @@ export default function CanvasView() {
               )
             })()}
             {connectionPaths.map((conn) => (
-              <g key={conn.id}
+              <g key={conn.id} data-connection-id={conn.id} role="button" tabIndex={0}
+                aria-label={`设置连线：${nodes.get(conn.fromCardId)?.name ?? '对象'} → ${nodes.get(conn.toCardId)?.name ?? '对象'}`}
+                onMouseDown={e => e.stopPropagation()}
+                onClick={e => { e.stopPropagation(); setSelectedConn(conn.id) }}
+                onDoubleClick={e => e.stopPropagation()}
+                onContextMenu={e => { e.preventDefault(); e.stopPropagation(); setSelectedConn(conn.id) }}
+                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); setSelectedConn(conn.id) } }}
                 onMouseEnter={() => setHoveredConn(conn.id)}
                 onMouseLeave={() => setHoveredConn(null)}
               >
                 <path d={conn.path} className="conn-hit-area" />
                 <path
                   d={conn.path}
-                  className={`conn-line ${hoveredConn === conn.id ? 'active' : ''}`}
-                  markerEnd={hoveredConn === conn.id ? 'url(#arrowhead-active)' : 'url(#arrowhead)'}
+                  className={`conn-line ${(hoveredConn === conn.id || selectedConn === conn.id) ? 'active' : ''}`}
+                  markerEnd={(hoveredConn === conn.id || selectedConn === conn.id) ? 'url(#arrowhead-active)' : 'url(#arrowhead)'}
                 />
                 {hoveredConn === conn.id && (
                   <foreignObject
@@ -1220,7 +1258,7 @@ export default function CanvasView() {
                     y={conn.midpoint.y - 10}
                     width="20" height="20"
                   >
-                    <button className="conn-delete-btn" onClick={() => deleteConnection(conn.id)}>
+                    <button className="conn-delete-btn" aria-label="删除连线" onClick={e => { e.stopPropagation(); deleteConnection(conn.id) }}>
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
                         <line x1="18" y1="6" x2="6" y2="18" /><line x1="6" y1="6" x2="18" y2="18" />
                       </svg>
