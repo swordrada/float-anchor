@@ -6,7 +6,7 @@ import { v4 as uuid } from 'uuid'
 import type { Canvas, Card, CanvasLabel, Section, SectionAppearance, SectionAppearancePatch, Connection, CanvasViewport, AppSettings, WebDAVConfig, WebDAVSyncDecision, TextBox, SyncProvider, JournalData } from './types'
 import { getTodayDateKey } from './lib/dateUtils'
 import { getSectionAppearance, sanitizeSectionAppearancePatch } from './sectionStyle'
-import { fitSectionLayout, CARD_SNAP_GAP } from './sectionLayout'
+import { fitSectionLayout, CARD_SNAP_GAP, CARD_VERTICAL_SNAP_GAP } from './sectionLayout'
 import { canvasSnapRects, labelHeight, snapCanvasRects } from './canvasSnapping'
 
 export function getEffectiveProvider(settings: AppSettings): SyncProvider {
@@ -193,7 +193,7 @@ function reflowInstantCardsInSection(canvas: Canvas, section: Section): { cards:
 // 判断卡片 cd 是否真正"贴靠"在 member 旁边：在一个轴方向上贴合（边缘吻合或相隔一个 GAP），
 // 且在另一个轴方向上有实际重叠。仅单轴边缘吻合（如只有 x 对齐、y 却相距很远）不算贴靠——
 // 否则磁吸把卡片吸到远处分区成员的同列/同行坐标后，那个远分区会误判并拉伸过来框住卡片。
-export function isCardSnappedAdjacent(cd: SnapRect, member: SnapRect, gap: number, tol = 1): boolean {
+export function isCardSnappedAdjacent(cd: SnapRect, member: SnapRect, gap: number, tol = 1, verticalGap = gap): boolean {
   const cR = cd.x + cd.width, cB = cd.y + cd.height
   const mR = member.x + member.width, mB = member.y + member.height
   const overlapsX = Math.min(cR, mR) - Math.max(cd.x, member.x) > tol
@@ -206,8 +206,8 @@ export function isCardSnappedAdjacent(cd: SnapRect, member: SnapRect, gap: numbe
   const touchV =
     Math.abs(cd.y - member.y) < tol ||
     Math.abs(cB - mB) < tol ||
-    Math.abs(cd.y - (mB + gap)) < tol ||
-    Math.abs(cB - (member.y - gap)) < tol
+    Math.abs(cd.y - (mB + verticalGap)) < tol ||
+    Math.abs(cB - (member.y - verticalGap)) < tol
   return (touchH && overlapsY) || (touchV && overlapsX)
 }
 
@@ -261,7 +261,7 @@ interface AppState {
   addCard: (x: number, y: number) => void
   updateCard: (cardId: string, patch: Partial<Card>) => void
   deleteCard: (cardId: string) => void
-  moveCard: (cardId: string, x: number, y: number) => void
+  moveCard: (cardId: string, x: number, y: number, scale?: number) => void
   setEditingCard: (cardId: string | null) => void
   moveCardToCanvas: (cardId: string, targetCanvasId: string) => void
   setHighlightCard: (cardId: string | null) => void
@@ -763,7 +763,7 @@ export const useStore = create<AppState>((set, get) => ({
     get().persist()
   },
 
-  moveCard: (cardId, x, y) => {
+  moveCard: (cardId, x, y, scale) => {
     const { activeCanvasId } = get()
     if (!activeCanvasId) return
     const canvas = get().canvases.find((c) => c.id === activeCanvasId)
@@ -772,7 +772,7 @@ export const useStore = create<AppState>((set, get) => ({
     if (!self) return
 
     const { dx, dy } = snapCanvasRects(
-      [{ ...self, x, y, height: self.height ?? 300 }], canvasSnapRects(canvas),
+      [{ ...self, x, y, height: self.height ?? 300 }], canvasSnapRects(canvas), scale ?? canvas.viewport?.scale ?? 1,
     )
     const bestX = x + dx
     const bestY = y + dy
@@ -896,7 +896,7 @@ export const useStore = create<AppState>((set, get) => ({
         if (!member) continue
         const mRect = { x: member.x, y: member.y, width: member.width, height: member.height ?? 300 }
         // 需一轴贴合 + 另一轴有重叠，避免远处分区因单轴对齐被误判贴靠并拉伸
-        if (isCardSnappedAdjacent(cdRect, mRect, GAP)) return true
+        if (isCardSnappedAdjacent(cdRect, mRect, GAP, 1, CARD_VERTICAL_SNAP_GAP)) return true
       }
       return false
     }

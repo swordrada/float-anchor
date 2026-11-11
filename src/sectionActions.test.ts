@@ -48,7 +48,7 @@ describe('分区外观与最佳大小的保存集成', () => {
     expect(useStore.getState().canvases[0].sections!.map((item) => item.borderColor)).toEqual(['#234567', '#234567'])
   })
 
-  it('带连线成员也会调整大小、以 12px 排布，连线与分区外内容不变', async () => {
+  it('带连线成员也会调整大小、以上下 6px 排布，连线与分区外内容不变', async () => {
     const before = useStore.getState().canvases
     const changes: unknown[] = []
     const unsubscribe = useStore.subscribe((state) => { changes.push(state.canvases) })
@@ -57,8 +57,8 @@ describe('分区外观与最佳大小的保存集成', () => {
     const after = useStore.getState().canvases
     expect(changes).toHaveLength(1)
     expect(after[0].cards[0]).toMatchObject({ height: 120, x: 100, y: 100 })
-    expect(after[0].cards[1]).toMatchObject({ height: 900, x: 100, y: 232, content: '原始内容' })
-    expect(after[0].sections![0]).toMatchObject({ x: 76, y: 40, width: 348, height: 1116 })
+    expect(after[0].cards[1]).toMatchObject({ height: 900, x: 100, y: 226, content: '原始内容' })
+    expect(after[0].sections![0]).toMatchObject({ x: 76, y: 40, width: 348, height: 1110 })
     expect(after[0].connections).toBe(before[0].connections)
     expect(after[0].cards[2]).toBe(before[0].cards[2])
     expect(after[1]).toBe(before[1])

@@ -65,13 +65,13 @@
 
 ## 下载安装
 
-当前稳定版为 **[`v1.0.27`](https://github.com/swordrada/float-anchor/releases/tag/v1.0.27)**，新增标题宽度调整、紧凑标题磁吸和可调连线走线，优化虚线显示与 Heptabase 导入布局，保留视频预览和批量同步功能，提供 macOS（Apple Silicon / Intel）和 Windows 64 位安装包。完整变更见 [版本公告](CHANGELOG.md#v1027)。
+当前稳定版为 **[`v1.0.28`](https://github.com/swordrada/float-anchor/releases/tag/v1.0.28)**，缩小卡片上下磁吸间距至 6px，统一缩放下的拖动吸附手感，修复松手时遗漏最后一次移动的问题，保留视频预览和批量同步功能，提供 macOS（Apple Silicon / Intel）和 Windows 64 位安装包。完整变更见 [版本公告](CHANGELOG.md#v1028)。
 
 | 文件 | 平台 | 适用设备 |
 |------|------|----------|
-| [FloatAnchor-1.0.27-mac-arm64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.27/FloatAnchor-1.0.27-mac-arm64.dmg) | macOS | Apple Silicon（M 系列） |
-| [FloatAnchor-1.0.27-mac-x64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.27/FloatAnchor-1.0.27-mac-x64.dmg) | macOS | Intel Mac |
-| [FloatAnchor-1.0.27-win-setup.exe](https://github.com/swordrada/float-anchor/releases/download/v1.0.27/FloatAnchor-1.0.27-win-setup.exe) | Windows | 64 位 Windows（x64） |
+| [FloatAnchor-1.0.28-mac-arm64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.28/FloatAnchor-1.0.28-mac-arm64.dmg) | macOS | Apple Silicon（M 系列） |
+| [FloatAnchor-1.0.28-mac-x64.dmg](https://github.com/swordrada/float-anchor/releases/download/v1.0.28/FloatAnchor-1.0.28-mac-x64.dmg) | macOS | Intel Mac |
+| [FloatAnchor-1.0.28-win-setup.exe](https://github.com/swordrada/float-anchor/releases/download/v1.0.28/FloatAnchor-1.0.28-win-setup.exe) | Windows | 64 位 Windows（x64） |
 
 已安装的用户可在 **设置 → 应用 → 软件更新** 中检查更新。如果旧版本无法发现更新，可直接下载对应平台安装包，退出应用后覆盖安装；笔记仍保存在原来的本地数据目录。
 

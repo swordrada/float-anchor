@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { fitSectionLayout, CARD_SNAP_GAP } from './sectionLayout'
+import { fitSectionLayout, CARD_SNAP_GAP, CARD_VERTICAL_SNAP_GAP } from './sectionLayout'
 import type { Card, Section } from './types'
 
 const card = (id: string, x: number, y: number, width = 300, height = 600): Card =>
@@ -13,18 +13,18 @@ describe('分区最佳大小：先量内容，再磁吸排布，最后包围分�
     const result = fitSectionLayout(cards, section(['top', 'bottom', 'right']), { top: 120, bottom: 240, right: 300 })!
     const [bottom, right, top] = result.cards
     expect([top.x, top.y, top.height]).toEqual([100, 100, 120])
-    expect(bottom.y - (top.y + top.height!)).toBe(CARD_SNAP_GAP)
+    expect(bottom.y - (top.y + top.height!)).toBe(CARD_VERTICAL_SNAP_GAP)
     expect(right.x - (top.x + top.width)).toBe(CARD_SNAP_GAP)
     expect(right.y).toBe(top.y)
-    expect(result.section).toMatchObject({ x: 76, y: 40, width: 660, height: 456 })
+    expect(result.section).toMatchObject({ x: 76, y: 40, width: 660, height: 450 })
     expect(cards[0].height).toBe(600) // inputs are immutable
   })
 
   it('长内容会增长，短内容会缩小；不裁切内容、不改变宽度', () => {
     const result = fitSectionLayout([card('a', 0, 60, 420, 90), card('b', 0, 200, 280, 900)], section(['a', 'b']), { a: 1000.4, b: 90 })!
     expect(result.cards[0]).toMatchObject({ width: 420, height: 1001 })
-    expect(result.cards[1]).toMatchObject({ width: 280, height: 90, y: 1073 })
-    expect(result.section.y + result.section.height).toBe(1163 + 24)
+    expect(result.cards[1]).toMatchObject({ width: 280, height: 90, y: 1067 })
+    expect(result.section.y + result.section.height).toBe(1157 + 24)
   })
 
   it('重复执行不漂移；原卡片内容与来源标识不变', () => {

@@ -1,5 +1,5 @@
 import type { Canvas, CanvasLabel } from './types'
-import { CARD_SNAP_GAP } from './sectionLayout'
+import { CARD_SNAP_GAP, CARD_VERTICAL_SNAP_GAP } from './sectionLayout'
 
 export interface SnapRect { id: string; x: number; y: number; width: number; height: number; kind?: 'card' | 'label' | 'section' }
 export const LABEL_SNAP_GAP = 4
@@ -24,18 +24,20 @@ export function snapCanvasRects(moving: SnapRect[], targets: SnapRect[], scale =
   const ids = new Set(moving.map(r => r.id))
   for (const self of moving) for (const other of targets) {
     if (ids.has(other.id)) continue
-    const gap = self.kind === 'label' || other.kind === 'label' ? LABEL_SNAP_GAP : CARD_SNAP_GAP
-    const nearX = self.x <= other.x + other.width + gap + threshold &&
-      self.x + self.width >= other.x - gap - threshold
-    const nearY = self.y <= other.y + other.height + gap + threshold &&
-      self.y + self.height >= other.y - gap - threshold
+    const hasLabel = self.kind === 'label' || other.kind === 'label'
+    const gapX = hasLabel ? LABEL_SNAP_GAP : CARD_SNAP_GAP
+    const gapY = hasLabel ? LABEL_SNAP_GAP : CARD_VERTICAL_SNAP_GAP
+    const nearX = self.x <= other.x + other.width + gapX + threshold &&
+      self.x + self.width >= other.x - gapX - threshold
+    const nearY = self.y <= other.y + other.height + gapY + threshold &&
+      self.y + self.height >= other.y - gapY - threshold
     if (!nearX || !nearY) continue
     const xs = [other.x, other.x + other.width - self.width,
       other.x + (other.width - self.width) / 2,
-      other.x + other.width + gap, other.x - gap - self.width]
+      other.x + other.width + gapX, other.x - gapX - self.width]
     const ys = [other.y, other.y + other.height - self.height,
       other.y + (other.height - self.height) / 2,
-      other.y + other.height + gap, other.y - gap - self.height]
+      other.y + other.height + gapY, other.y - gapY - self.height]
     for (const x of xs) if (Math.abs(x - self.x) < bestX) {
       bestX = Math.abs(x - self.x); dx = x - self.x
     }

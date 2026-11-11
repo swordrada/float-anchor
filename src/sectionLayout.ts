@@ -1,6 +1,7 @@
 import type { Card, Section } from './types'
 
 export const CARD_SNAP_GAP = 12
+export const CARD_VERTICAL_SNAP_GAP = 6
 export const SECTION_PADDING = 24
 export const SECTION_HEADER_HEIGHT = 36
 
@@ -37,7 +38,7 @@ export function fitSectionLayout(cards: Card[], section: Section, heights: Reado
       fitted.set(card.id, { ...card, x, y, height, instantOrder: undefined })
       right = Math.max(right, x + card.width)
       bottom = Math.max(bottom, y + height)
-      y += height + CARD_SNAP_GAP
+      y += height + CARD_VERTICAL_SNAP_GAP
     }
     x += width + CARD_SNAP_GAP
   }

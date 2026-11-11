@@ -15,6 +15,16 @@ describe('canvas magnetic alignment', () => {
     const r = snapCanvasRects([{...titleRect,x:102,y:y+3,height:labelHeight(label)}],canvasSnapRects(board))
     expect(r).toMatchObject({dx:-2,dy:-3,snappedX:true,snappedY:true})
   })
+  it('uses a compact vertical gap in both directions and retains horizontal spacing', () => {
+    expect(snapCanvasRects([{...card,id:'moving',y:354.96197133}],[card],0.704).dy)
+      .toBeCloseTo(1.03802867)
+    expect(snapCanvasRects([{...card,id:'moving',y:-59}],[card]).dy).toBe(3)
+    expect(snapCanvasRects([{...card,id:'moving',x:410}],[card]).dx).toBe(2)
+  })
+  it('does not force adjacency once the pointer leaves the attraction range', () => {
+    expect(snapCanvasRects([{...card,id:'moving',y:375}],[card],1))
+      .toMatchObject({dy:0,snappedY:false})
+  })
   it('snaps to section edges and centers', () => {
     const rect = {...titleRect,x:752,y:60,height:labelHeight(label)}
     expect(snapCanvasRects([rect],canvasSnapRects(board)).dx).toBe(-2)
@@ -45,6 +55,25 @@ describe('persisted title and connection actions', () => {
   it('applies title snapping through the store', () => {
     useStore.getState().moveLabel('title',102,card.y-labelHeight(label)-2)
     expect(useStore.getState().canvases[0].labels![0]).toMatchObject({x:100,y:card.y-labelHeight(label)-4})
+  })
+  it('uses the viewport scale for single cards just like selection dragging', () => {
+    const moving = {...card,id:'moving',y:400}
+    const canvas = {...structuredClone(board),cards:[card,moving],labels:[],viewport:{panX:0,panY:0,scale:0.5}}
+    useStore.setState({canvases:[canvas]})
+    useStore.getState().moveCard('moving',109,365)
+    const moved = useStore.getState().canvases[0].cards[1]
+    const snap = snapCanvasRects([{...moving,x:109,y:365}],canvasSnapRects(canvas),0.5)
+    expect(moved).toMatchObject({x:109+snap.dx,y:365+snap.dy})
+    expect(moved).toMatchObject({x:100,y:356})
+  })
+  it('recognizes vertical snapping to a section member when releasing outside its bounds', () => {
+    const member = {...card,x:100,y:100,width:300,height:200}
+    const moving = {...card,id:'moving',x:100,y:306,width:300,height:200}
+    useStore.setState({canvases:[{...board,cards:[member,moving],labels:[],sections:[
+      {id:'section',name:'分区',color:'#ccc',x:76,y:40,width:348,height:284,cardIds:['card']}
+    ]}]})
+    useStore.getState().finalizeCardMove('moving')
+    expect(useStore.getState().canvases[0].sections![0].cardIds).toContain('moving')
   })
   it('retains routing metadata through edits and persistence', async () => {
     const store = useStore.getState()

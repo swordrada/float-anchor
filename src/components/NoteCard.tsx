@@ -289,14 +289,16 @@ const NoteCard = React.memo(function NoteCard({ cardId, scale, highlight, select
       const oy = card.y
       const s = scale
       let dragRaf = 0
+      let pendingDrag: (() => void) | undefined
       const onMove = (ev: MouseEvent) => {
         cancelAnimationFrame(dragRaf)
-        dragRaf = requestAnimationFrame(() =>
-          moveCard(cardId, ox + (ev.clientX - sx) / s, oy + (ev.clientY - sy) / s),
-        )
+        pendingDrag = () => moveCard(cardId, ox + (ev.clientX - sx) / s, oy + (ev.clientY - sy) / s, s)
+        dragRaf = requestAnimationFrame(() => { pendingDrag?.(); pendingDrag = undefined })
       }
       const onUp = () => {
         cancelAnimationFrame(dragRaf)
+        pendingDrag?.()
+        pendingDrag = undefined
         setIsDragging(false)
         useStore.getState().finalizeCardMove(cardId)
         document.removeEventListener('mousemove', onMove)
