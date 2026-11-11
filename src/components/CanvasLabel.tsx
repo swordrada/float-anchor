@@ -82,11 +82,12 @@ const CanvasLabelComponent = React.memo(function CanvasLabelComponent({ label, s
     const onMove = (ev: MouseEvent) => {
       cancelAnimationFrame(raf)
       raf = requestAnimationFrame(() =>
-        moveLabel(label.id, ox + (ev.clientX - sx) / s, oy + (ev.clientY - sy) / s),
+        moveLabel(label.id, ox + (ev.clientX - sx) / s, oy + (ev.clientY - sy) / s, s),
       )
     }
-    const onUp = () => {
+    const onUp = (ev: MouseEvent) => {
       cancelAnimationFrame(raf)
+      moveLabel(label.id, ox + (ev.clientX - sx) / s, oy + (ev.clientY - sy) / s, s)
       setIsDragging(false)
       document.removeEventListener('mousemove', onMove)
       document.removeEventListener('mouseup', onUp)

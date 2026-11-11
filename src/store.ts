@@ -6,6 +6,7 @@ import type { Canvas, Card, CanvasLabel, Section, SectionAppearance, SectionAppe
 import { getTodayDateKey } from './lib/dateUtils'
 import { getSectionAppearance, sanitizeSectionAppearancePatch } from './sectionStyle'
 import { fitSectionLayout, CARD_SNAP_GAP } from './sectionLayout'
+import { canvasSnapRects, labelHeight, snapCanvasRects } from './canvasSnapping'
 
 export function getEffectiveProvider(settings: AppSettings): SyncProvider {
   return settings.syncProvider ?? (settings.webdav?.server ? 'webdav' : 'none')
@@ -272,7 +273,7 @@ interface AppState {
   addLabel: (x: number, y: number) => void
   updateLabel: (labelId: string, patch: Partial<CanvasLabel>) => void
   deleteLabel: (labelId: string) => void
-  moveLabel: (labelId: string, x: number, y: number) => void
+  moveLabel: (labelId: string, x: number, y: number, scale?: number) => void
 
   addSection: (x: number, y: number) => void
   updateSection: (sectionId: string, patch: Partial<Section>) => void
@@ -768,41 +769,11 @@ export const useStore = create<AppState>((set, get) => ({
     const self = canvas.cards.find((c) => c.id === cardId)
     if (!self) return
 
-    const SNAP_DIST = 6
-    const GAP = CARD_SNAP_GAP
-    const selfW = self.width
-    const selfH = self.height ?? 300
-
-    let bestX = x
-    let bestY = y
-    let bestDx = SNAP_DIST
-    let bestDy = SNAP_DIST
-
-    for (const other of canvas.cards) {
-      if (other.id === cardId) continue
-      const ow = other.width
-      const oh = other.height ?? 300
-
-      let d: number
-
-      d = Math.abs(x - (other.x + ow + GAP))
-      if (d < bestDx) { bestDx = d; bestX = other.x + ow + GAP }
-      d = Math.abs((x + selfW) - (other.x - GAP))
-      if (d < bestDx) { bestDx = d; bestX = other.x - GAP - selfW }
-      d = Math.abs(x - other.x)
-      if (d < bestDx) { bestDx = d; bestX = other.x }
-      d = Math.abs((x + selfW) - (other.x + ow))
-      if (d < bestDx) { bestDx = d; bestX = other.x + ow - selfW }
-
-      d = Math.abs(y - other.y)
-      if (d < bestDy) { bestDy = d; bestY = other.y }
-      d = Math.abs((y + selfH) - (other.y + oh))
-      if (d < bestDy) { bestDy = d; bestY = other.y + oh - selfH }
-      d = Math.abs(y - (other.y + oh + GAP))
-      if (d < bestDy) { bestDy = d; bestY = other.y + oh + GAP }
-      d = Math.abs((y + selfH) - (other.y - GAP))
-      if (d < bestDy) { bestDy = d; bestY = other.y - GAP - selfH }
-    }
+    const { dx, dy } = snapCanvasRects(
+      [{ ...self, x, y, height: self.height ?? 300 }], canvasSnapRects(canvas),
+    )
+    const bestX = x + dx
+    const bestY = y + dy
 
     if (self.x === bestX && self.y === bestY) return
 
@@ -1120,9 +1091,14 @@ export const useStore = create<AppState>((set, get) => ({
     get().persist()
   },
 
-  moveLabel: (labelId, x, y) => {
+  moveLabel: (labelId, x, y, scale = 1) => {
     const { activeCanvasId } = get()
-    if (!activeCanvasId) return
+    const canvas = get().canvases.find(c => c.id === activeCanvasId)
+    const label = canvas?.labels?.find(l => l.id === labelId)
+    if (!canvas || !label) return
+    const { dx, dy } = snapCanvasRects([{ ...label, kind: 'label', x, y, height: labelHeight(label) }], canvasSnapRects(canvas), scale)
+    x += dx
+    y += dy
     set((s) => ({
       canvases: s.canvases.map((c) =>
         c.id === activeCanvasId

@@ -16,7 +16,7 @@ import { expandCardIdsForSelectedSections } from '../canvasSelection'
 import { getSearchTargetBounds, getSearchTargetViewport } from '../lib/searchNavigation'
 import type { SearchNavigationTarget } from '../lib/searchNavigation'
 import { getConnectionGeometry, getConnectionPreview } from '../connectionGeometry'
-import { CARD_SNAP_GAP } from '../sectionLayout'
+import { canvasSnapRects, snapCanvasRects, labelHeight } from '../canvasSnapping'
 import { measureCardHeights } from '../lib/cardMeasurement'
 import { useFitSections } from '../useFitSections'
 
@@ -71,7 +71,7 @@ function computeSelection(
   }
 
   for (const label of labels) {
-    const lh = 40
+    const lh = labelHeight(label)
     if (rectsIntersect(selRect.x, selRect.y, selRect.w, selRect.h, label.x, label.y, label.width, lh)) {
       sel.labelIds.add(label.id)
     }
@@ -111,7 +111,7 @@ function pointInSelection(
   for (const id of sel.labelIds) {
     const l = labels.find((x) => x.id === id)
     if (l && coords.x >= l.x && coords.x <= l.x + l.width &&
-        coords.y >= l.y && coords.y <= l.y + 40) return true
+        coords.y >= l.y && coords.y <= l.y + labelHeight(l)) return true
   }
   for (const id of sel.sectionIds) {
     const s = sections.find((x) => x.id === id)
@@ -567,9 +567,7 @@ export default function CanvasView() {
     const startX = multiDragStart.current!.cx
     const startY = multiDragStart.current!.cy
     let dragRaf = 0
-
-    const SNAP_DIST = 6
-    const GAP = CARD_SNAP_GAP
+    let pendingDrag: (() => void) | undefined
 
     const store0 = useStore.getState()
     const canvas0 = store0.canvases.find((c) => c.id === store0.activeCanvasId)
@@ -602,77 +600,19 @@ export default function CanvasView() {
       const totalDx = (e.clientX - startX) / s
       const totalDy = (e.clientY - startY) / s
 
-      dragRaf = requestAnimationFrame(() => {
+      pendingDrag = () => {
         const store = useStore.getState()
         const canvas = store.canvases.find((c) => c.id === store.activeCanvasId)
         if (!canvas) return
 
-        const selectedCardData = canvas.cards.filter((c) => dragCardIds.has(c.id))
-        if (selectedCardData.length === 0) {
-          const updatedLabels = (canvas.labels ?? []).map((l) => {
-            const orig = origLabels.get(l.id)
-            return orig ? { ...l, x: orig.x + totalDx, y: orig.y + totalDy } : l
-          })
-          const updatedSections = (canvas.sections ?? []).map((sec) => {
-            const orig = origSections.get(sec.id)
-            return orig ? { ...sec, x: orig.x + totalDx, y: orig.y + totalDy } : sec
-          })
-          const updatedTexts = (canvas.texts ?? []).map((t) => {
-            const orig = origTexts.get(t.id)
-            return orig ? { ...t, x: orig.x + totalDx, y: orig.y + totalDy } : t
-          })
-          useStore.setState({
-            canvases: store.canvases.map((c) =>
-              c.id === store.activeCanvasId
-                ? { ...c, labels: updatedLabels, sections: updatedSections, texts: updatedTexts }
-                : c,
-            ),
-          })
-          return
-        }
-
-        let snapOffX = 0
-        let snapOffY = 0
-        let bestDistX = SNAP_DIST
-        let bestDistY = SNAP_DIST
-
-        for (const other of canvas.cards) {
-          if (dragCardIds.has(other.id)) continue
-          const ow = other.width
-          const oh = other.height ?? 300
-
-          for (const sc of selectedCardData) {
-            const orig = origCards.get(sc.id)
-            if (!orig) continue
-            const scx = orig.x + totalDx
-            const scy = orig.y + totalDy
-            const scw = sc.width
-            const sch = sc.height ?? 300
-
-            let d: number
-
-            d = Math.abs(scx - (other.x + ow + GAP))
-            if (d < bestDistX) { bestDistX = d; snapOffX = other.x + ow + GAP - scx }
-            d = Math.abs((scx + scw) - (other.x - GAP))
-            if (d < bestDistX) { bestDistX = d; snapOffX = other.x - GAP - scw - scx }
-            d = Math.abs(scx - other.x)
-            if (d < bestDistX) { bestDistX = d; snapOffX = other.x - scx }
-            d = Math.abs((scx + scw) - (other.x + ow))
-            if (d < bestDistX) { bestDistX = d; snapOffX = other.x + ow - scw - scx }
-
-            d = Math.abs(scy - other.y)
-            if (d < bestDistY) { bestDistY = d; snapOffY = other.y - scy }
-            d = Math.abs((scy + sch) - (other.y + oh))
-            if (d < bestDistY) { bestDistY = d; snapOffY = other.y + oh - sch - scy }
-            d = Math.abs(scy - (other.y + oh + GAP))
-            if (d < bestDistY) { bestDistY = d; snapOffY = other.y + oh + GAP - scy }
-            d = Math.abs((scy + sch) - (other.y - GAP))
-            if (d < bestDistY) { bestDistY = d; snapOffY = other.y - GAP - sch - scy }
-          }
-        }
-
-        const finalDx = totalDx + snapOffX
-        const finalDy = totalDy + snapOffY
+        const origins = new Map([...origCards, ...origLabels, ...origSections, ...origTexts])
+        const allRects = canvasSnapRects(canvas)
+        const moving = allRects.filter(r => origins.has(r.id)).map(r => ({
+          ...r, x: origins.get(r.id)!.x + totalDx, y: origins.get(r.id)!.y + totalDy,
+        }))
+        const snap = snapCanvasRects(moving, allRects.filter(r => !origins.has(r.id)), s)
+        const finalDx = totalDx + snap.dx
+        const finalDy = totalDy + snap.dy
 
         const updatedCards = canvas.cards.map((c) => {
           const orig = origCards.get(c.id)
@@ -698,10 +638,13 @@ export default function CanvasView() {
               : c,
           ),
         })
-      })
+      }
+      dragRaf = requestAnimationFrame(() => { pendingDrag?.(); pendingDrag = undefined })
     }
     const onUp = () => {
       cancelAnimationFrame(dragRaf)
+      pendingDrag?.()
+      pendingDrag = undefined
       setIsMultiDragging(false)
       multiDragStart.current = null
       useStore.getState().persist()
