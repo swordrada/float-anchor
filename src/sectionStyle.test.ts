@@ -8,9 +8,9 @@ describe('分区外观兼容与校验', () => {
     expect(getSectionAppearance({ color: '#AABBCC' })).toEqual({ color: '#aabbcc', borderColor: '#aabbcc', borderStyle: 'dashed' })
   })
 
-  it('独立边框颜色和实线样式覆盖默认值', () => {
+  it('旧数据边框跟随填充色，保留实线样式', () => {
     expect(getSectionAppearance({ color: '#abc', borderColor: '#Ff0022', borderStyle: 'solid' }))
-      .toEqual({ color: '#aabbcc', borderColor: '#ff0022', borderStyle: 'solid' })
+      .toEqual({ color: '#aabbcc', borderColor: '#aabbcc', borderStyle: 'solid' })
   })
 
   it('缺失或非法旧颜色使用默认蓝色，非法边框回退到有效底色', () => {
@@ -26,7 +26,7 @@ describe('分区外观兼容与校验', () => {
 
   it('非法字段不影响同次修改中的合法字段，忽略几何等未知字段', () => {
     expect(sanitizeSectionAppearancePatch({ color: '#F80', borderColor: 123, borderStyle: 'solid', x: 999, name: 'ignored' } as unknown as SectionAppearancePatch))
-      .toEqual({ color: '#ff8800', borderStyle: 'solid' })
+      .toEqual({ color: '#ff8800', borderColor: '#ff8800', borderStyle: 'solid' })
   })
 
   it.each([null, undefined, [], 'red', 42])('非对象输入不产生修改 %j', (value) => {

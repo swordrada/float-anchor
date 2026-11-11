@@ -11,7 +11,7 @@ interface Props {
   fitting: boolean
 }
 
-type AppearanceField = 'color' | 'borderColor' | 'borderStyle'
+type AppearanceField = 'color' | 'borderStyle'
 const COLORS = [
   { value: '#60a5fa', label: '蓝色' },
   { value: '#34d399', label: '绿色' },
@@ -178,7 +178,7 @@ function AppearanceMenu({ field, label, value, open, onOpen, onClose, onChange }
   >
     <button ref={triggerRef} type="button" className="section-appearance-trigger" aria-label={`分区${label}`} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? menuId : undefined}
       onKeyDown={handleTriggerKey} onClick={() => openAndFocus(Math.max(0, selectedIndex))}>
-      <span className="section-appearance-field-label">{field === 'color' ? '背景' : field === 'borderColor' ? '边框颜色' : '边框'}</span>
+      <span className="section-appearance-field-label">{field === 'color' ? '颜色' : '边框'}</span>
       {preview}
       <span className="section-appearance-value">{currentLabel}</span>
       <svg className="section-appearance-chevron" width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m3 4.5 3 3 3-3" /></svg>
@@ -239,7 +239,6 @@ export default function SectionSelectionToolbar({ sections, onChange, onClear, o
   }, [openMenu])
   const appearances = sections.map(getSectionAppearance)
   const color = sharedValue(appearances.map((appearance) => appearance.color))
-  const borderColor = sharedValue(appearances.map((appearance) => appearance.borderColor))
   const borderStyle = sharedValue(appearances.map((appearance) => appearance.borderStyle))
   if (sections.length === 0) return null
 
@@ -261,14 +260,13 @@ export default function SectionSelectionToolbar({ sections, onChange, onClear, o
     }}>
     <span className="section-toolbar-count" aria-live="polite">已选 <strong>{sections.length}</strong> 个分区</span>
     <div className="section-toolbar-controls">
-      <AppearanceMenu key={`color-${selectionKey}`} field="color" label="背景颜色" value={color} open={openMenu === 'color'}
+      <AppearanceMenu key={`color-${selectionKey}`} field="color" label="颜色" value={color} open={openMenu === 'color'}
         onOpen={() => setOpenMenu('color')} onClose={() => setOpenMenu((current) => current === 'color' ? null : current)} onChange={(value) => onChange({ color: value })} />
       <AppearanceMenu key={`borderStyle-${selectionKey}`} field="borderStyle" label="边框线型" value={borderStyle} open={openMenu === 'borderStyle'}
         onOpen={() => setOpenMenu('borderStyle')} onClose={() => setOpenMenu((current) => current === 'borderStyle' ? null : current)} onChange={(value) => onChange({ borderStyle: value as 'solid' | 'dashed' })} />
-      <AppearanceMenu key={`borderColor-${selectionKey}`} field="borderColor" label="边框颜色" value={borderColor} open={openMenu === 'borderColor'}
-        onOpen={() => setOpenMenu('borderColor')} onClose={() => setOpenMenu((current) => current === 'borderColor' ? null : current)} onChange={(value) => onChange({ borderColor: value })} />
+
     </div>
-    <button type="button" className="section-toolbar-button" title="先调整卡片大小，再以 12px 间距排布并收紧分区（F）" disabled={fitting} aria-busy={fitting} onClick={onFit}>最佳大小</button>
+    <button type="button" className="section-toolbar-button" title="先调整卡片大小，再以上下 6px、左右 12px 间距排布并收紧分区（F）" disabled={fitting} aria-busy={fitting} onClick={onFit}>最佳大小</button>
     <button type="button" className="section-toolbar-button" aria-label="取消分区选择" title="取消选择（Esc）" onClick={onClear}>
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true"><path d="m6 6 12 12M18 6 6 18" /></svg>
       <span>取消选择</span>

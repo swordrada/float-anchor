@@ -3,7 +3,7 @@ import { contentFingerprint } from './lib/syncData'
 import { create } from 'zustand'
 import { shallow } from 'zustand/shallow'
 import { v4 as uuid } from 'uuid'
-import type { Canvas, Card, CanvasLabel, Section, SectionAppearance, SectionAppearancePatch, Connection, CanvasViewport, AppSettings, WebDAVConfig, WebDAVSyncDecision, TextBox, SyncProvider, JournalData } from './types'
+import type { Canvas, Card, CanvasLabel, Section, SectionAppearancePatch, Connection, CanvasViewport, AppSettings, WebDAVConfig, WebDAVSyncDecision, TextBox, SyncProvider, JournalData } from './types'
 import { getTodayDateKey } from './lib/dateUtils'
 import { getSectionAppearance, sanitizeSectionAppearancePatch } from './sectionStyle'
 import { fitSectionLayout, CARD_SNAP_GAP, CARD_VERTICAL_SNAP_GAP } from './sectionLayout'
@@ -1134,7 +1134,7 @@ export const useStore = create<AppState>((set, get) => ({
     set((s) => ({
       canvases: s.canvases.map((c) =>
         c.id === activeCanvasId
-          ? { ...c, sections: (c.sections ?? []).map((sec) => sec.id === sectionId ? { ...sec, ...patch } : sec) }
+          ? { ...c, sections: (c.sections ?? []).map((sec) => sec.id === sectionId ? { ...sec, ...patch, ...getSectionAppearance({ ...sec, ...sanitizeSectionAppearancePatch(patch) }) } : sec) }
           : c,
       ),
     }))
@@ -1143,7 +1143,7 @@ export const useStore = create<AppState>((set, get) => ({
 
   updateSections: (ids, patch) => {
     const validPatch = sanitizeSectionAppearancePatch(patch)
-    const keys = Object.keys(validPatch) as (keyof SectionAppearance)[]
+    const keys = Object.keys(validPatch)
     if (ids.length === 0 || keys.length === 0) return
     const { activeCanvasId, canvases } = get()
     const canvas = canvases.find((item) => item.id === activeCanvasId)
@@ -1152,16 +1152,9 @@ export const useStore = create<AppState>((set, get) => ({
     let changed = false
     const sections = canvas.sections.map((section) => {
       if (!selectedIds.has(section.id)) return section
-      const appearance = getSectionAppearance(section)
-      if (!keys.some((key) => appearance[key] !== validPatch[key])) return section
+      const next = { ...section, ...getSectionAppearance({ ...section, ...validPatch }) }
+      if (section.color === next.color && section.borderColor === next.borderColor && section.borderStyle === next.borderStyle) return section
       changed = true
-      const next = { ...section, ...validPatch }
-      // Legacy sections derive their border from the fill. Freeze that old border
-      // before changing the fill so the two color controls remain independent.
-      if (validPatch.color && validPatch.color !== appearance.color && validPatch.borderColor === undefined &&
-        sanitizeSectionAppearancePatch(section).borderColor === undefined) {
-        next.borderColor = appearance.borderColor
-      }
       return next
     })
     if (!changed) return

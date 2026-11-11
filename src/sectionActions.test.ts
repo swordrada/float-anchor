@@ -27,11 +27,11 @@ describe('分区外观与最佳大小的保存集成', () => {
     vi.unstubAllGlobals()
   })
 
-  it('只修改选中分区的外观并保存，旧分区可分别设置背景与边框', async () => {
+  it('只修改选中分区的外观并保存，背景与边框一起变色', async () => {
     const before = useStore.getState().canvases
     useStore.getState().updateSections(['s'], { color: '#ABC', borderStyle: 'solid' })
     const after = useStore.getState().canvases
-    expect(after[0].sections![0]).toEqual({ ...section, color: '#aabbcc', borderStyle: 'solid', borderColor: '#60a5fa' })
+    expect(after[0].sections![0]).toEqual({ ...section, color: '#aabbcc', borderStyle: 'solid', borderColor: '#aabbcc' })
     expect(after[0].cards).toBe(before[0].cards)
     expect(after[0].sections![1]).toBe(before[0].sections![1])
     expect(after[1]).toBe(before[1])
@@ -45,7 +45,17 @@ describe('分区外观与最佳大小的保存集成', () => {
     useStore.getState().updateSections(['s'], { color: 'red', borderStyle: 'none', x: 999 } as unknown as SectionAppearancePatch)
     expect(useStore.getState().canvases).toBe(before)
     useStore.getState().updateSections(['s', 'other'], { borderColor: '#234567' })
-    expect(useStore.getState().canvases[0].sections!.map((item) => item.borderColor)).toEqual(['#234567', '#234567'])
+    expect(useStore.getState().canvases[0].sections!.map((item) => [item.color,item.borderColor])).toEqual([['#234567','#234567'],['#234567','#234567']])
+  })
+
+  it('再次选择原填充色也修复旧异色边框，普通编辑接口同样保持同色', () => {
+    const canvases = structuredClone(useStore.getState().canvases)
+    canvases[0].sections![0].borderColor = '#ff0000'
+    useStore.setState({canvases})
+    useStore.getState().updateSections(['s'], {color: section.color})
+    expect(useStore.getState().canvases[0].sections![0].borderColor).toBe(section.color)
+    useStore.getState().updateSection('s', {color:'#abc',borderColor:'#ff0000'})
+    expect(useStore.getState().canvases[0].sections![0]).toMatchObject({color:'#aabbcc',borderColor:'#aabbcc'})
   })
 
   it('带连线成员也会调整大小、以上下 6px 排布，连线与分区外内容不变', async () => {

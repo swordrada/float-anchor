@@ -11,14 +11,12 @@ function normalizeColor(value: unknown): string | undefined {
   return undefined
 }
 
-/** Validate fields separately so an invalid partial edit never resets other styles. */
+/** One color controls both fill and border; accept the old border-only API as an alias. */
 export function sanitizeSectionAppearancePatch(patch: SectionAppearancePatch): SectionAppearancePatch {
   const result: SectionAppearancePatch = {}
   if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return result
-  const color = normalizeColor(patch.color)
-  const borderColor = normalizeColor(patch.borderColor)
-  if (color) result.color = color
-  if (borderColor) result.borderColor = borderColor
+  const color = normalizeColor(patch.color) ?? normalizeColor(patch.borderColor)
+  if (color) { result.color = color; result.borderColor = color }
   if (patch.borderStyle === 'solid' || patch.borderStyle === 'dashed') result.borderStyle = patch.borderStyle
   return result
 }
@@ -26,5 +24,5 @@ export function sanitizeSectionAppearancePatch(patch: SectionAppearancePatch): S
 export function getSectionAppearance(section: SectionAppearancePatch): SectionAppearance {
   const valid = sanitizeSectionAppearancePatch(section)
   const color = valid.color ?? DEFAULT_SECTION_COLOR
-  return { color, borderStyle: valid.borderStyle ?? 'dashed', borderColor: valid.borderColor ?? color }
+  return { color, borderStyle: valid.borderStyle ?? 'dashed', borderColor: color }
 }
